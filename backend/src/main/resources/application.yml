@@ -1,0 +1,45 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/learning_resource_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 1000
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+jwt:
+  secret: ${JWT_SECRET:change-this-secret-in-production-please-use-a-long-random-value}
+  expiration: 86400000
+
+file:
+  upload-dir: ./uploads
+  public-prefix: /uploads
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+      - http://localhost:3000
+
+resource-agent:
+  lm:
+    enabled: true
+    base-url: https://meta.tangarcin.de/v1
+    model: mimo-v2.5-pro
+    api-key: ${RESOURCE_AGENT_LM_API_KEY:}
+    timeout-ms: 30000
+    max-input-chars: 12000
