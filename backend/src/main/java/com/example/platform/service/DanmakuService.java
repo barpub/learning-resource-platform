@@ -4,15 +4,21 @@ import com.example.platform.common.BusinessException;
 import com.example.platform.dto.DanmakuConfigDTO;
 import com.example.platform.dto.DanmakuDTO;
 import com.example.platform.entity.Danmaku;
+import com.example.platform.entity.Note;
+import com.example.platform.entity.NoteShare;
 import com.example.platform.entity.Resource;
 import com.example.platform.entity.User;
 import com.example.platform.mapper.DanmakuMapper;
+import com.example.platform.mapper.NoteMapper;
+import com.example.platform.mapper.NoteShareMapper;
 import com.example.platform.mapper.ResourceMapper;
 import com.example.platform.security.CurrentUser;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -23,18 +29,49 @@ public class DanmakuService {
 
     private final DanmakuMapper danmakuMapper;
     private final ResourceMapper resourceMapper;
+    private final NoteShareMapper noteShareMapper;
+    private final NoteMapper noteMapper;
 
-    public DanmakuService(DanmakuMapper danmakuMapper, ResourceMapper resourceMapper) {
+    public DanmakuService(DanmakuMapper danmakuMapper, ResourceMapper resourceMapper,
+                          NoteShareMapper noteShareMapper, NoteMapper noteMapper) {
         this.danmakuMapper = danmakuMapper;
         this.resourceMapper = resourceMapper;
+        this.noteShareMapper = noteShareMapper;
+        this.noteMapper = noteMapper;
     }
 
     public List<Danmaku> list(Long resourceId) {
+        return list(resourceId, null, null);
+    }
+
+    public List<Danmaku> list(Long resourceId, String mode, String shareToken) {
         Resource resource = resourceMapper.findById(resourceId);
         if (resource == null || Integer.valueOf(0).equals(resource.getStatus())) {
             throw new BusinessException(404, "资源不存在");
         }
-        return danmakuMapper.findByResource(resourceId);
+        List<Danmaku> danmakus = danmakuMapper.findByResource(resourceId);
+        if (!isSharedNoteMode(mode)) {
+            return danmakus;
+        }
+
+        Set<Long> visibleUserIds = new LinkedHashSet<>();
+        if (resource.getUserId() != null) {
+            visibleUserIds.add(resource.getUserId());
+        }
+        User current = CurrentUser.get();
+        if (current != null) {
+            visibleUserIds.add(current.getId());
+        }
+        Long shareOwnerId = resolveShareOwnerId(resourceId, shareToken);
+        if (shareOwnerId != null) {
+            visibleUserIds.add(shareOwnerId);
+        }
+        if (visibleUserIds.isEmpty()) {
+            return List.of();
+        }
+        return danmakus.stream()
+                .filter(danmaku -> danmaku.getUserId() != null && visibleUserIds.contains(danmaku.getUserId()))
+                .toList();
     }
 
     public Danmaku send(Long resourceId, DanmakuDTO dto) {
@@ -147,5 +184,28 @@ public class DanmakuService {
             return trimmed.toLowerCase();
         }
         return "#ffffff";
+    }
+
+    private boolean isSharedNoteMode(String mode) {
+        if (mode == null) {
+            return false;
+        }
+        String normalized = mode.trim().toUpperCase();
+        return "SHARE_NOTE".equals(normalized) || "SHARED_NOTE".equals(normalized);
+    }
+
+    private Long resolveShareOwnerId(Long resourceId, String shareToken) {
+        if (shareToken == null || shareToken.trim().isEmpty()) {
+            return null;
+        }
+        NoteShare share = noteShareMapper.findActiveByToken(shareToken.trim());
+        if (share == null) {
+            return null;
+        }
+        Note note = noteMapper.findById(share.getNoteId());
+        if (note == null || !Objects.equals(share.getOwnerId(), note.getUserId())) {
+            return null;
+        }
+        return resourceId.equals(note.getResourceId()) ? share.getOwnerId() : null;
     }
 }

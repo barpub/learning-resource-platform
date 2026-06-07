@@ -1,15 +1,17 @@
 <template>
-  <div class="folder-agent-page">
-    <section class="folder-agent-header panel">
+  <div class="agent-understand-page">
+    <section class="agent-understand-header panel">
       <div>
-        <span class="eyebrow">Analysis Agent</span>
-        <h1>分析 Agent</h1>
-        <p class="muted">当前对象：{{ resourceId ? folderPathLabel : '未选择虚拟文件夹' }}</p>
+        <span class="eyebrow">Agent Understand</span>
+        <h1>Agent 理解</h1>
+        <p class="muted">
+          面向别人上传的资源内容，生成内容总结、知识点、结构解析和分析依据。当前对象：{{ targetLabel }}
+        </p>
       </div>
-      <div class="folder-agent-actions">
+      <div class="agent-understand-actions">
         <el-button @click="router.push('/search')">资源搜索</el-button>
-        <el-button v-if="resourceId" @click="backToFolder">返回文件夹</el-button>
-        <el-button type="primary" :loading="loading" :disabled="!resourceId" @click="loadSummary">重新分析</el-button>
+        <el-button v-if="resourceId" @click="backToResource">返回资源</el-button>
+        <el-button type="primary" :loading="loading" :disabled="!resourceId" @click="loadUnderstanding">重新理解</el-button>
       </div>
     </section>
 
@@ -23,54 +25,66 @@
     />
 
     <section v-if="!resourceId" class="panel empty-agent-panel">
-      <el-empty description="请先进入用户上传的虚拟文件夹，再点击“分析当前文件夹”。">
+      <el-empty description="请先打开别人上传的资源，再点击“Agent 理解”。">
         <el-button type="primary" @click="router.push('/resources')">进入资源库</el-button>
       </el-empty>
     </section>
 
-    <section v-else class="folder-agent-workbench">
-      <aside class="folder-agent-metrics panel" v-loading="loading">
+    <section v-else class="agent-understand-workbench">
+      <aside class="agent-understand-metrics panel" v-loading="loading">
         <div class="section-heading compact">
           <div>
             <span class="eyebrow">Scope</span>
-            <h2>分析范围</h2>
+            <h2>理解范围</h2>
           </div>
           <el-tag type="info">{{ contentSourceLabel }}</el-tag>
         </div>
 
         <div class="metric-list">
-          <div>
+          <div v-if="folderScope">
             <span>虚拟路径</span>
             <strong>{{ folderPathLabel }}</strong>
           </div>
-          <div>
+          <div v-if="metadata.resourceType">
+            <span>资源类型</span>
+            <strong>{{ metadata.resourceType }}</strong>
+          </div>
+          <div v-if="summary?.fileName">
+            <span>文件名</span>
+            <strong>{{ summary.fileName }}</strong>
+          </div>
+          <div v-if="metadata.fileType">
+            <span>文件类型</span>
+            <strong>{{ metadata.fileType }}</strong>
+          </div>
+          <div v-if="metadata.fileCount !== undefined">
             <span>文件数</span>
             <strong>{{ metadata.fileCount ?? '-' }}</strong>
           </div>
-          <div>
+          <div v-if="metadata.directFileCount !== undefined">
             <span>直属文件</span>
             <strong>{{ metadata.directFileCount ?? '-' }}</strong>
           </div>
-          <div>
+          <div v-if="metadata.childFolderCount !== undefined">
             <span>子目录</span>
             <strong>{{ metadata.childFolderCount ?? '-' }}</strong>
           </div>
-          <div>
+          <div v-if="metadata.extractedFileCount !== undefined">
             <span>已读正文</span>
             <strong>{{ metadata.extractedFileCount ?? '-' }}</strong>
           </div>
-          <div>
+          <div v-if="metadata.fileSize !== undefined || metadata.totalSize !== undefined">
             <span>总大小</span>
-            <strong>{{ formatSize(Number(metadata.totalSize || 0)) }}</strong>
+            <strong>{{ formatSize(Number(metadata.totalSize ?? metadata.fileSize ?? 0)) }}</strong>
           </div>
         </div>
       </aside>
 
-      <main class="folder-agent-summary panel" v-loading="loading">
+      <main class="agent-understand-summary panel" v-loading="loading">
         <div class="section-heading compact">
           <div>
-            <span class="eyebrow">Folder Summary</span>
-            <h2>{{ summary?.title || '等待分析结果' }}</h2>
+            <span class="eyebrow">Content Understanding</span>
+            <h2>{{ summary?.title || '等待理解结果' }}</h2>
           </div>
           <el-tag :type="confidenceType">{{ confidenceLabel }}</el-tag>
         </div>
@@ -89,7 +103,7 @@
           </section>
 
           <section class="summary-block">
-            <h3>文件结构</h3>
+            <h3>内容结构</h3>
             <ol>
               <li v-for="item in summary.outline" :key="item">{{ item }}</li>
             </ol>
@@ -113,7 +127,7 @@
           </section>
         </template>
 
-        <el-empty v-else-if="!loading" description="暂无分析结果" />
+        <el-empty v-else-if="!loading" description="暂无理解结果" />
       </main>
     </section>
   </div>
@@ -123,7 +137,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { resourceAgentApi } from '../api'
+import { resourceUnderstandingApi } from '../api'
 import { formatSize } from '../utils/fileIcon'
 
 const route = useRoute()
@@ -135,11 +149,14 @@ const errorMessage = ref('')
 const resourceId = computed(() => route.query.resourceId || route.query.folderId || '')
 const folderPath = computed(() => normalizePath(route.query.path || ''))
 const folderPathLabel = computed(() => folderPath.value || '/')
+const folderScope = computed(() => route.query.scope === 'folder' || route.query.folderId || Boolean(route.query.path))
+const targetLabel = computed(() => {
+  if (!resourceId.value) return '未选择上传资源'
+  if (folderScope.value) return `虚拟文件夹 ${folderPathLabel.value}`
+  return '上传资源'
+})
 const metadata = computed(() => summary.value?.metadata || {})
-const contentSourceLabel = computed(() => ({
-  'folder-files+content': '正文 + 目录',
-  'folder-files': '目录结构'
-})[summary.value?.contentSource] || '待分析')
+const contentSourceLabel = computed(() => contentSourceText(summary.value?.contentSource))
 
 const confidenceLabel = computed(() => {
   if (!summary.value) return '待分析'
@@ -157,24 +174,47 @@ function normalizePath(path = '') {
   return String(path).replace(/\\/g, '/').split('/').map((part) => part.trim()).filter(Boolean).join('/')
 }
 
-async function loadSummary() {
+function contentSourceText(source) {
+  if (!source) return '待理解'
+  if (source.includes('+llm')) {
+    return `${contentSourceText(source.replace('+llm', ''))} + LLM`
+  }
+  if (source.startsWith('sidecar-transcript:')) {
+    return '媒体转写旁路'
+  }
+  return ({
+    'folder-files+content': '正文 + 目录',
+    'folder-files': '目录结构',
+    'docx-text': 'Word 正文',
+    'pptx-slides': 'PPT 文本',
+    'pptx-text': 'PPT 文本',
+    'plain-text': '文本正文',
+    'text': '文本正文',
+    'media-transcript-sidecar': '媒体转写旁路',
+    'media-metadata': '媒体元数据',
+    metadata: '资源元数据',
+    'metadata-fallback': '元数据兜底'
+  })[source] || source
+}
+
+async function loadUnderstanding() {
   if (!resourceId.value) return
   loading.value = true
   errorMessage.value = ''
   try {
-    summary.value = await resourceAgentApi.summarizeFolder(resourceId.value, {
-      path: folderPath.value || undefined
-    })
+    summary.value = folderScope.value
+      ? await resourceUnderstandingApi.summarizeFolder(resourceId.value, { path: folderPath.value || undefined })
+      : await resourceUnderstandingApi.summarizeResource(resourceId.value)
   } catch (error) {
     summary.value = null
-    errorMessage.value = error.message || '文件夹分析失败'
+    errorMessage.value = error.message || 'Agent 理解失败'
     ElMessage.error(errorMessage.value)
   } finally {
     loading.value = false
   }
 }
 
-function backToFolder() {
+function backToResource() {
   if (!resourceId.value) {
     router.push('/resources')
     return
@@ -185,9 +225,9 @@ function backToFolder() {
   })
 }
 
-watch(() => [route.query.resourceId, route.query.folderId, route.query.path], () => {
+watch(() => [route.query.resourceId, route.query.folderId, route.query.path, route.query.scope], () => {
   if (resourceId.value) {
-    loadSummary()
+    loadUnderstanding()
   } else {
     summary.value = null
     errorMessage.value = ''
@@ -196,24 +236,24 @@ watch(() => [route.query.resourceId, route.query.folderId, route.query.path], ()
 </script>
 
 <style scoped>
-.folder-agent-page {
+.agent-understand-page {
   display: grid;
   gap: 18px;
 }
 
-.folder-agent-header {
+.agent-understand-header {
   display: flex;
   gap: 16px;
   justify-content: space-between;
   align-items: center;
 }
 
-.folder-agent-header p {
+.agent-understand-header p {
   max-width: 760px;
   margin: 8px 0 0;
 }
 
-.folder-agent-actions {
+.agent-understand-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -230,15 +270,15 @@ watch(() => [route.query.resourceId, route.query.folderId, route.query.path], ()
   place-items: center;
 }
 
-.folder-agent-workbench {
+.agent-understand-workbench {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
 
-.folder-agent-metrics,
-.folder-agent-summary {
+.agent-understand-metrics,
+.agent-understand-summary {
   display: grid;
   gap: 14px;
   min-width: 0;
@@ -318,20 +358,20 @@ watch(() => [route.query.resourceId, route.query.folderId, route.query.path], ()
 }
 
 @media (max-width: 960px) {
-  .folder-agent-header,
-  .folder-agent-workbench {
+  .agent-understand-header,
+  .agent-understand-workbench {
     grid-template-columns: 1fr;
   }
 
-  .folder-agent-header {
+  .agent-understand-header {
     display: grid;
   }
 
-  .folder-agent-actions {
+  .agent-understand-actions {
     justify-content: stretch;
   }
 
-  .folder-agent-actions .el-button {
+  .agent-understand-actions .el-button {
     flex: 1;
   }
 }

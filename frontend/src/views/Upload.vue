@@ -16,9 +16,19 @@
         <el-form-item label="资源描述">
           <el-input v-model="form.description" type="textarea" :rows="4" placeholder="说明资源内容、课程章节或使用方式" />
         </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="form.categoryId" placeholder="选择分类" size="large" style="width: 100%">
-            <el-option v-for="item in categories" :key="item.id" :label="item.name" :value="item.id" />
+        <el-form-item label="标签">
+          <el-select
+            v-model="form.tags"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            :multiple-limit="6"
+            placeholder="输入标签后回车，最多 6 个，每个不超过 16 字"
+            size="large"
+            style="width: 100%"
+            @change="normalizeFormTags"
+          >
           </el-select>
         </el-form-item>
 
@@ -178,7 +188,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { categoryApi, resourceApi } from '../api'
+import { resourceApi } from '../api'
 import {
   buildFileTree,
   childFolderPath,
@@ -204,7 +214,6 @@ import FileCard from '../components/FileCard.vue'
 import FilePreviewPanel from '../components/FilePreviewPanel.vue'
 
 const router = useRouter()
-const categories = ref([])
 const progress = ref(0)
 const batchFiles = ref([])
 const virtualFolders = ref([])
@@ -215,7 +224,7 @@ const localPreviewUrl = ref('')
 const restored = ref(false)
 const workspaceSavedAt = ref('')
 const previewVisible = ref(false)
-const form = reactive({ title: '', description: '', categoryId: null })
+const form = reactive({ title: '', description: '', tags: [] })
 const targetDialog = reactive({
   visible: false,
   title: '',
@@ -511,10 +520,7 @@ async function submit() {
     ElMessage.warning('请输入标题')
     return
   }
-  if (!form.categoryId) {
-    ElMessage.warning('请选择分类')
-    return
-  }
+  normalizeFormTags()
   const uploadItems = batchFiles.value.filter((item) => selectedKeys.value.has(item.key))
   if (!uploadItems.length) {
     ElMessage.warning('请至少勾选一个要上传的文件')
@@ -523,7 +529,9 @@ async function submit() {
   const data = new FormData()
   data.append('title', form.title)
   data.append('description', form.description)
-  data.append('categoryId', form.categoryId)
+  if (form.tags.length) {
+    data.append('tags', form.tags.join(','))
+  }
   const isPlainSingleFile = uploadItems.length === 1 && uploadItems[0].relativePath === uploadItems[0].file.name
   if (isPlainSingleFile) {
     data.append('file', uploadItems[0].file)
@@ -554,6 +562,24 @@ function stripExtension(name = '') {
 function folderTitle(relativePath = '') {
   const parts = relativePath.split(/[\\/]/).filter(Boolean)
   return parts.length > 1 ? parts[0] : '课程资料'
+}
+
+function normalizeFormTags() {
+  form.tags = normalizeTags(form.tags)
+}
+
+function normalizeTags(values) {
+  const source = Array.isArray(values) ? values : String(values || '').split(/[,，;；\s]+/)
+  const result = []
+  const seen = new Set()
+  source.forEach((value) => {
+    const tag = String(value || '').replace(/[#<>"'`]/g, '').trim().slice(0, 16)
+    const key = tag.toLowerCase()
+    if (!tag || seen.has(key) || result.length >= 6) return
+    seen.add(key)
+    result.push(tag)
+  })
+  return result
 }
 
 function normalizePath(path = '') {
@@ -629,7 +655,7 @@ async function restoreWorkspace() {
   if (!draft) return
   form.title = draft.form?.title || ''
   form.description = draft.form?.description || ''
-  form.categoryId = draft.form?.categoryId || null
+  form.tags = normalizeTags(draft.form?.tags || [])
   batchFiles.value = (draft.files || []).filter((item) => item.file).map((item) => ({
     ...item,
     size: item.size ?? item.file.size,
@@ -664,13 +690,12 @@ watch(selectedFile, async (item) => {
 })
 
 watch(
-  [batchFiles, virtualFolders, selectedKeys, selectedKey, currentPath, () => form.title, () => form.description, () => form.categoryId],
+  [batchFiles, virtualFolders, selectedKeys, selectedKey, currentPath, () => form.title, () => form.description, () => form.tags],
   persistWorkspace,
   { deep: true }
 )
 
 onMounted(async () => {
-  categories.value = await categoryApi.list()
   await restoreWorkspace()
   restored.value = true
 })

@@ -21,6 +21,7 @@ public class GlobalSearchItem {
     private String previewUrl;
     private String downloadUrl;
     private String categoryName;
+    private String tags;
     private String ownerName;
     private Integer viewCount;
     private Integer downloadCount;
@@ -154,6 +155,14 @@ public class GlobalSearchItem {
 
     public void setCategoryName(String categoryName) {
         this.categoryName = categoryName;
+    }
+
+    public String getTags() {
+        return tags;
+    }
+
+    public void setTags(String tags) {
+        this.tags = tags;
     }
 
     public String getOwnerName() {

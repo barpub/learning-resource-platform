@@ -114,6 +114,7 @@ public class GlobalSearchService {
             item.setDownloadUrl("/api/resources/" + resource.getId() + "/download");
         }
         item.setCategoryName(resource.getCategoryName());
+        item.setTags(resource.getTags());
         item.setOwnerName(resource.getUsername());
         item.setViewCount(resource.getViewCount());
         item.setDownloadCount(resource.getDownloadCount());
@@ -159,7 +160,8 @@ public class GlobalSearchService {
             score += fieldScore(item.getTitle(), searchTerms, 42, "标题匹配", highlights);
             score += fieldScore(item.getFileName(), searchTerms, 26, "文件名匹配", highlights);
             score += fieldScore(item.getDescription(), searchTerms, 16, "描述匹配", highlights);
-            score += fieldScore(item.getCategoryName(), searchTerms, 10, "分类匹配", highlights);
+            score += fieldScore(item.getTags(), searchTerms, 18, "标签匹配", highlights);
+            score += fieldScore(item.getCategoryName(), searchTerms, 6, "分类匹配", highlights);
             score += fieldScore(item.getOwnerName(), searchTerms, 8, "来源/作者匹配", highlights);
             score += fieldScore(item.getRemotePath(), searchTerms, 20, "远程路径匹配", highlights);
         }

@@ -2,7 +2,6 @@ package com.example.platform.controller;
 
 import com.example.platform.common.Result;
 import com.example.platform.dto.ResourceAgentRemoteSummaryRequest;
-import com.example.platform.dto.ResourceAgentSearchResponse;
 import com.example.platform.dto.ResourceContentSummary;
 import com.example.platform.service.ResourceAgentService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,13 +19,6 @@ public class ResourceAgentController {
 
     public ResourceAgentController(ResourceAgentService resourceAgentService) {
         this.resourceAgentService = resourceAgentService;
-    }
-
-    @GetMapping("/search")
-    public Result<ResourceAgentSearchResponse> search(@RequestParam(required = false) String keyword,
-                                                      @RequestParam(required = false) String source,
-                                                      @RequestParam(required = false) Integer limit) {
-        return Result.success(resourceAgentService.search(keyword, source, limit));
     }
 
     @GetMapping("/resources/{id}/summary")

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,8 +26,11 @@ public class DanmakuController {
     }
 
     @GetMapping("/api/resources/{id}/danmakus")
-    public Result<List<Danmaku>> list(@PathVariable Long id) {
-        return Result.success(danmakuService.list(id));
+    public Result<List<Danmaku>> list(
+            @PathVariable Long id,
+            @RequestParam(required = false) String mode,
+            @RequestParam(required = false) String shareToken) {
+        return Result.success(danmakuService.list(id, mode, shareToken));
     }
 
     @PostMapping("/api/resources/{id}/danmakus")

@@ -22,6 +22,7 @@ public interface ResourceMapper {
             "<if test='keyword != null and keyword != \"\"'>",
             "AND (r.title LIKE CONCAT('%', #{keyword}, '%')",
             "OR r.description LIKE CONCAT('%', #{keyword}, '%')",
+            "OR r.tags LIKE CONCAT('%', #{keyword}, '%')",
             "OR u.username LIKE CONCAT('%', #{keyword}, '%')",
             "OR u.nickname LIKE CONCAT('%', #{keyword}, '%'))",
             "</if>",
@@ -48,6 +49,7 @@ public interface ResourceMapper {
             "<if test='keyword != null and keyword != \"\"'>",
             "AND (r.title LIKE CONCAT('%', #{keyword}, '%')",
             "OR r.description LIKE CONCAT('%', #{keyword}, '%')",
+            "OR r.tags LIKE CONCAT('%', #{keyword}, '%')",
             "OR u.username LIKE CONCAT('%', #{keyword}, '%')",
             "OR u.nickname LIKE CONCAT('%', #{keyword}, '%'))",
             "</if>",
@@ -83,6 +85,7 @@ public interface ResourceMapper {
             "OR r.description LIKE CONCAT('%', #{keyword}, '%')",
             "OR r.file_name LIKE CONCAT('%', #{keyword}, '%')",
             "OR r.relative_path LIKE CONCAT('%', #{keyword}, '%')",
+            "OR r.tags LIKE CONCAT('%', #{keyword}, '%')",
             "OR c.name LIKE CONCAT('%', #{keyword}, '%')",
             "OR u.username LIKE CONCAT('%', #{keyword}, '%')",
             "OR u.nickname LIKE CONCAT('%', #{keyword}, '%'))",
@@ -93,11 +96,11 @@ public interface ResourceMapper {
     })
     List<Resource> searchGlobal(@Param("keyword") String keyword, @Param("limit") int limit);
 
-    @Insert("INSERT INTO resource (title, description, file_name, file_path, file_size, file_type, resource_type, parent_id, sort_order, relative_path, file_count, category_id, user_id, status) VALUES (#{title}, #{description}, #{fileName}, #{filePath}, #{fileSize}, #{fileType}, COALESCE(#{resourceType}, 'FILE'), #{parentId}, COALESCE(#{sortOrder}, 0), #{relativePath}, COALESCE(#{fileCount}, 0), #{categoryId}, #{userId}, #{status})")
+    @Insert("INSERT INTO resource (title, description, file_name, file_path, file_size, file_type, resource_type, parent_id, sort_order, relative_path, file_count, category_id, tags, user_id, status) VALUES (#{title}, #{description}, #{fileName}, #{filePath}, #{fileSize}, #{fileType}, COALESCE(#{resourceType}, 'FILE'), #{parentId}, COALESCE(#{sortOrder}, 0), #{relativePath}, COALESCE(#{fileCount}, 0), #{categoryId}, #{tags}, #{userId}, #{status})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(Resource resource);
 
-    @Update("UPDATE resource SET title=#{title}, description=#{description}, category_id=#{categoryId}, update_time=NOW() WHERE id=#{id}")
+    @Update("UPDATE resource SET title=#{title}, description=#{description}, category_id=#{categoryId}, tags=#{tags}, update_time=NOW() WHERE id=#{id}")
     int update(Resource resource);
 
     @Update("UPDATE resource SET title=#{fileName}, file_name=#{fileName}, relative_path=#{relativePath}, update_time=NOW() WHERE id=#{id}")
@@ -117,6 +120,23 @@ public interface ResourceMapper {
 
     @Update("UPDATE resource SET view_count = view_count + 1 WHERE id=#{id}")
     int incrementViewCount(Long id);
+
+    @Select({
+        "<script>",
+        "SELECT r.*, c.name AS category_name, u.username FROM resource r",
+        "LEFT JOIN category c ON r.category_id = c.id",
+        "LEFT JOIN `user` u ON r.user_id = u.id",
+        "WHERE r.status = 1 AND r.parent_id IS NULL",
+        "<if test='categoryIds != null and !categoryIds.isEmpty()'>",
+        "AND r.category_id IN",
+        "<foreach collection='categoryIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
+        "</if>",
+        "ORDER BY r.rating DESC, r.view_count DESC",
+        "LIMIT #{limit}",
+        "</script>"
+    })
+    List<Resource> findByCategoryIds(@Param("categoryIds") List<Long> categoryIds, @Param("limit") int limit);
+
 
     @Update("UPDATE resource SET download_count = download_count + 1 WHERE id=#{id}")
     int incrementDownloadCount(Long id);

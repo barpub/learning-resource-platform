@@ -89,19 +89,6 @@ class ResourceAgentControllerTest {
                 .andExpect(jsonPath("$.data.limitations", hasItem(containsString("语音识别"))));
     }
 
-    @Test
-    void searchAgentWrapsGlobalSearchWithAgentSteps() throws Exception {
-        Path file = Files.createTempFile("agent-search", ".txt");
-        Files.writeString(file, "resource agent search test");
-        insertResource("agent-search.txt", file, "text/plain");
-
-        mockMvc.perform(get("/api/agent/search").param("keyword", "agent-search"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.records.length()").value(1))
-                .andExpect(jsonPath("$.data.answer", containsString("已找到")))
-                .andExpect(jsonPath("$.data.agentSteps.length()").value(3));
-    }
-
     private Resource insertResource(String fileName, Path file, String fileType) {
         Resource resource = new Resource();
         resource.setTitle(fileName);

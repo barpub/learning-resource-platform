@@ -7,6 +7,8 @@ import com.example.platform.entity.FtpConnection;
 import com.example.platform.entity.Resource;
 import com.example.platform.mapper.FtpConnectionMapper;
 import com.example.platform.mapper.ResourceMapper;
+import com.example.platform.mapper.ViewHistoryMapper;
+import com.example.platform.security.CurrentUser;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URLEncoder;
@@ -32,25 +34,46 @@ public class BetaRecommendationService {
     private final ResourceMapper resourceMapper;
     private final FtpConnectionMapper ftpConnectionMapper;
     private final FtpService ftpService;
+    private final ViewHistoryMapper viewHistoryMapper;
 
     public BetaRecommendationService(ResourceMapper resourceMapper,
                                      FtpConnectionMapper ftpConnectionMapper,
-                                     FtpService ftpService) {
+                                     FtpService ftpService,
+                                     ViewHistoryMapper viewHistoryMapper) {
         this.resourceMapper = resourceMapper;
         this.ftpConnectionMapper = ftpConnectionMapper;
         this.ftpService = ftpService;
+        this.viewHistoryMapper = viewHistoryMapper;
     }
 
     public BetaRecommendationResponse recommend(BetaRecommendationRequest request) {
         BetaRecommendationRequest safeRequest = request == null ? new BetaRecommendationRequest() : request;
         int limit = Math.max(1, Math.min(safeRequest.getLimit() == null ? 18 : safeRequest.getLimit(), 40));
+
+        Long userId = CurrentUser.id();
+        List<Long> preferredCategoryIds = new ArrayList<>();
+        List<Long> viewedResourceIds = new ArrayList<>();
+
+        if (userId != null) {
+            preferredCategoryIds = viewHistoryMapper.findRecentCategoryIds(userId);
+            viewedResourceIds = viewHistoryMapper.findTopViewedResourceIds(userId, 50);
+        }
+
         List<String> userTags = normalizeTags(safeRequest);
         List<BetaRecommendationItem> pool = new ArrayList<>();
         int remoteSkipped = 0;
 
         if (!Boolean.FALSE.equals(safeRequest.getIncludeLocal())) {
-            for (Resource resource : resourceMapper.findRecommendationPool(LOCAL_POOL_LIMIT)) {
-                pool.add(fromLocal(resource));
+            List<Resource> resources;
+            if (!preferredCategoryIds.isEmpty()) {
+                resources = resourceMapper.findByCategoryIds(preferredCategoryIds, LOCAL_POOL_LIMIT);
+            } else {
+                resources = resourceMapper.findRecommendationPool(LOCAL_POOL_LIMIT);
+            }
+            for (Resource resource : resources) {
+                if (!viewedResourceIds.contains(resource.getId())) {
+                    pool.add(fromLocal(resource));
+                }
             }
         }
 

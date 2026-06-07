@@ -9,18 +9,21 @@
         <h1>{{ resource.title }}</h1>
         <p class="muted">{{ resource.description || '暂无描述' }}</p>
         <div class="detail-meta">
-          <span>{{ resource.categoryName || '未分类' }}</span>
           <span>上传者：{{ resource.username }}</span>
           <span v-if="isFolder">文件 {{ resource.fileCount || children.length }}</span>
           <span>浏览 {{ resource.viewCount || 0 }}</span>
           <span>下载 {{ resource.downloadCount || 0 }}</span>
           <span>评分 {{ resource.rating || '0.00' }}</span>
         </div>
+        <div v-if="resourceTags.length" class="detail-tags">
+          <span v-for="tag in resourceTags" :key="tag">#{{ tag }}</span>
+        </div>
       </div>
       <div class="detail-actions">
         <el-button @click="shareResource(resource)">分享</el-button>
         <el-button type="primary" @click="downloadResource">{{ isFolder ? '下载整个文件夹' : '下载资源' }}</el-button>
         <el-button @click="openPreview">新窗口打开</el-button>
+        <el-button @click="understandResource">Agent 理解</el-button>
         <el-button @click="toggleFavorite">{{ resource.favorite ? '取消收藏' : '收藏资源' }}</el-button>
         <el-button v-if="isFolder && canDeleteResource" @click="editingFolder = !editingFolder">
           {{ editingFolder ? '退出编辑' : '编辑文件夹' }}
@@ -62,7 +65,7 @@
 
         <div class="directory-toolbar">
           <span>{{ currentDirectory.folder.fileCount }} 个文件 · {{ currentDirectory.folders.length }} 个目录</span>
-          <el-button size="small" type="primary" plain :disabled="!currentAnalysisFileCount" @click="analyzeCurrentFolder">分析当前文件夹</el-button>
+          <el-button size="small" type="primary" plain :disabled="!currentAnalysisFileCount" @click="understandCurrentFolder">理解当前文件夹</el-button>
           <el-button size="small" @click="selectFirstInCurrentDirectory" :disabled="!currentDirectory.files.length">选择预览</el-button>
         </div>
 
@@ -115,6 +118,8 @@
             <span>{{ previewTarget.relativePath || previewTarget.fileName || resource.title }}</span>
           </div>
           <div class="selected-actions">
+            <el-button size="small" type="primary" plain @click="understandPreviewTarget">Agent 理解</el-button>
+            <el-button v-if="store.state.token" size="small" type="primary" @click="openCurrentSnippetNote">记当前片段</el-button>
             <el-button size="small" @click="downloadPreviewTarget">下载</el-button>
             <el-button
               v-if="canDeletePreviewTarget"
@@ -169,10 +174,12 @@
         <div v-else-if="previewKind === 'video'" class="preview-box media-preview">
           <DanmakuPlayer
             v-if="previewTarget"
+            ref="videoPlayerRef"
             :resource-id="previewTarget.id"
             :src="previewUrl"
             :enabled="danmakuEnabled"
             :permission="danmakuPermission"
+            :share-token="noteShareToken"
             :current-user="currentUser"
             :is-owner-or-admin="danmakuOwnerOrAdmin"
             @open-config="danmakuConfigDialog = true"
@@ -192,7 +199,7 @@
           />
         </div>
 
-        <pre v-else-if="previewKind === 'text'" class="preview-box text-preview">{{ previewText }}</pre>
+        <pre v-else-if="previewKind === 'text'" ref="textPreviewRef" class="preview-box text-preview"><template v-for="(segment, index) in textPreviewSegments" :key="index"><mark v-if="segment.highlight" class="note-anchor-highlight">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></pre>
 
         <div v-else-if="previewKind === 'legacy-office'" class="preview-box document-preview legacy-frame">
           <div v-if="legacyLoading" class="legacy-loading">正在解析老版 Office 文档……</div>
@@ -257,6 +264,128 @@
       </el-dialog>
     </section>
 
+    <section v-if="store.state.token && previewTarget && mediaEnhanceSupported" class="panel media-enhance-panel">
+      <div class="media-enhance-header">
+        <div>
+          <span class="eyebrow">Media Enhance</span>
+          <h2>媒体增强</h2>
+        </div>
+        <el-tag :type="ffmpegReady ? 'success' : 'warning'">
+          {{ ffmpegReady ? 'FFmpeg 可用' : 'FFmpeg 未就绪' }}
+        </el-tag>
+      </div>
+
+      <el-alert
+        v-if="!canEnhancePreviewTarget"
+        title="只有资源发布者或管理员可以提交增强任务"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+      <el-alert
+        v-else-if="mediaCapability && !ffmpegReady"
+        :title="mediaCapability.message || 'FFmpeg 不可用，暂时无法执行本地增强'"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+
+      <div class="media-enhance-controls">
+        <el-form :model="enhanceForm" label-width="96px" class="media-enhance-form">
+          <template v-if="enhanceMediaKind === 'video'">
+            <el-form-item label="目标分辨率">
+              <el-select v-model="enhanceForm.targetResolution">
+                <el-option label="4K UHD" value="4K" />
+                <el-option label="2K QHD" value="2K" />
+                <el-option label="1080P" value="1080P" />
+                <el-option label="720P" value="720P" />
+                <el-option label="原分辨率" value="ORIGINAL" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="目标帧率">
+              <el-select v-model="enhanceForm.targetFps">
+                <el-option label="120 FPS" :value="120" />
+                <el-option label="60 FPS" :value="60" />
+                <el-option label="30 FPS" :value="30" />
+                <el-option label="保持原帧率" :value="0" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="编码质量">
+              <el-select v-model="enhanceForm.videoPreset">
+                <el-option label="质量优先" value="QUALITY" />
+                <el-option label="均衡" value="BALANCED" />
+                <el-option label="快速" value="FAST" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="运动插帧">
+              <el-switch v-model="enhanceForm.frameInterpolation" />
+            </el-form-item>
+          </template>
+          <el-form-item label="音频预设">
+            <el-select v-model="enhanceForm.audioPreset">
+              <el-option label="HiFi 响度/限幅" value="HIFI" />
+              <el-option label="人声平滑" value="VOCAL" />
+              <el-option label="鼓点动态" value="BEAT" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+
+        <div class="media-enhance-summary">
+          <strong>{{ previewTarget.fileName || previewTarget.title }}</strong>
+          <span>{{ enhancementSummary }}</span>
+          <div class="media-enhance-actions">
+            <el-button
+              type="primary"
+              :loading="submittingEnhancement"
+              :disabled="!canSubmitEnhancement"
+              @click="submitMediaEnhancement"
+            >
+              开始增强
+            </el-button>
+            <el-button :loading="loadingEnhancements" @click="refreshEnhancementPanel">刷新状态</el-button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="mediaJobs.length" class="media-job-list">
+        <article v-for="job in mediaJobs" :key="job.id" class="media-job-card">
+          <div class="media-job-main">
+            <div class="media-job-title">
+              <strong>#{{ job.id }} {{ job.mediaType === 'VIDEO' ? '视频增强' : '音频增强' }}</strong>
+              <el-tag :type="enhancementStatusType(job)">{{ enhancementStatusLabel(job.status) }}</el-tag>
+            </div>
+            <el-progress
+              :percentage="Number(job.progress || 0)"
+              :status="enhancementProgressStatus(job)"
+            />
+            <p>{{ job.message || '等待处理' }}</p>
+            <span>{{ formatJobTime(job.createTime) }}</span>
+          </div>
+          <div class="media-job-actions">
+            <el-button
+              v-if="job.outputResourceId"
+              size="small"
+              type="primary"
+              plain
+              @click="openEnhancedResource(job)"
+            >
+              查看结果
+            </el-button>
+            <el-button
+              v-if="isEnhancementActive(job)"
+              size="small"
+              type="danger"
+              plain
+              @click="cancelMediaEnhancement(job)"
+            >
+              取消
+            </el-button>
+          </div>
+        </article>
+      </div>
+      <el-empty v-else description="当前文件还没有增强任务" />
+    </section>
+
     <el-dialog
       v-model="danmakuConfigDialog"
       title="弹幕设置"
@@ -279,6 +408,64 @@
       <template #footer>
         <el-button @click="danmakuConfigDialog = false">取消</el-button>
         <el-button type="primary" @click="saveDanmakuConfig" :loading="savingDanmaku">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <section v-if="store.state.token && previewTarget" class="panel note-panel">
+      <div class="note-panel-header">
+        <div>
+          <span class="eyebrow">Notes</span>
+          <h2>当前文件笔记</h2>
+        </div>
+        <el-button type="primary" @click="openCurrentSnippetNote">记当前片段</el-button>
+      </div>
+
+      <div v-if="resourceNotes.length" class="resource-note-list">
+        <article v-for="note in resourceNotes" :key="note.id" class="resource-note-card">
+          <div class="resource-note-main">
+            <h3>{{ note.title }}</h3>
+            <div class="resource-note-meta">
+              <span v-if="note.category">{{ note.category }}</span>
+              <span v-if="note.anchorSeconds !== null && note.anchorSeconds !== undefined">{{ formatAnchorSeconds(note.anchorSeconds) }}</span>
+              <span>{{ note.createTime }}</span>
+            </div>
+            <button v-if="hasAnchorPreview(note)" type="button" class="note-snippet-card" @click="confirmJumpToNote(note)">
+              <img v-if="note.anchorImage" :src="note.anchorImage" :alt="note.title" />
+              <span class="snippet-text">{{ note.anchorText || anchorFallback(note) }}</span>
+            </button>
+            <p>{{ previewNoteContent(note.content) }}</p>
+          </div>
+          <div class="resource-note-actions">
+            <el-button size="small" @click="editResourceNote(note)">编辑</el-button>
+            <el-button size="small" type="danger" plain @click="deleteResourceNote(note)">删除</el-button>
+          </div>
+        </article>
+      </div>
+      <el-empty v-else description="当前文件暂无笔记" />
+    </section>
+
+    <el-dialog v-model="noteDialogVisible" :title="noteForm.id ? '编辑片段笔记' : '记录当前片段'" width="720px">
+      <div v-if="hasAnchorPreview(noteForm)" class="note-dialog-snippet">
+        <img v-if="noteForm.anchorImage" :src="noteForm.anchorImage" alt="片段截图" />
+        <div>
+          <strong>{{ anchorTypeLabel(noteForm.anchorType) }}</strong>
+          <p>{{ noteForm.anchorText || anchorFallback(noteForm) }}</p>
+        </div>
+      </div>
+      <el-form :model="noteForm" label-width="80px">
+        <el-form-item label="标题">
+          <el-input v-model="noteForm.title" placeholder="请输入笔记标题" />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="noteForm.category" placeholder="如：前端、后端、数据库" />
+        </el-form-item>
+        <el-form-item label="内容">
+          <el-input v-model="noteForm.content" type="textarea" :rows="8" placeholder="写下这段内容的理解、问题或总结" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="noteDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingNote" @click="saveResourceNote">保存</el-button>
       </template>
     </el-dialog>
 
@@ -312,7 +499,7 @@ import { useStore } from 'vuex'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderAsync } from 'docx-preview'
 import JSZip from 'jszip'
-import { commentApi, danmakuApi, favoriteApi, resourceApi } from '../api'
+import { commentApi, danmakuApi, favoriteApi, mediaEnhancementApi, noteApi, resourceApi } from '../api'
 import { buildFileTree, collectFolderPaths, listDirectory, pathBreadcrumb } from '../utils/fileTree.mjs'
 import { legacyKind, renderDoc, renderPpt, renderSpreadsheet } from '../utils/legacyOffice'
 import { shareResource } from '../utils/shareResource'
@@ -334,9 +521,39 @@ const legacyLoading = ref(false)
 const legacyError = ref('')
 const pptxSlides = ref([])
 const docxContainer = ref(null)
+const textPreviewRef = ref(null)
+const videoPlayerRef = ref(null)
 const editingFolder = ref(false)
 const objectUrls = []
 const commentForm = reactive({ content: '', rating: 5 })
+const resourceNotes = ref([])
+const noteDialogVisible = ref(false)
+const savingNote = ref(false)
+const highlightAnchorText = ref('')
+const noteForm = reactive({
+  id: null,
+  title: '',
+  content: '',
+  category: '',
+  resourceId: null,
+  anchorType: 'RESOURCE',
+  anchorText: '',
+  anchorImage: '',
+  anchorSeconds: null
+})
+const mediaCapability = ref(null)
+const mediaJobs = ref([])
+const loadingEnhancements = ref(false)
+const submittingEnhancement = ref(false)
+const enhanceForm = reactive({
+  targetResolution: '4K',
+  targetFps: 60,
+  videoPreset: 'BALANCED',
+  audioPreset: 'HIFI',
+  frameInterpolation: true,
+  aiUpscale: false
+})
+let enhancementTimer = 0
 const targetDialog = reactive({
   visible: false,
   title: '',
@@ -347,12 +564,14 @@ const targetDialog = reactive({
 
 const isFolder = computed(() => resource.value?.resourceType === 'FOLDER')
 const currentUser = computed(() => store.state.user)
+const resourceTags = computed(() => splitTags(resource.value?.tags))
 
 const danmakuConfigDialog = ref(false)
 const savingDanmaku = ref(false)
 const danmakuForm = reactive({ enabled: true, permission: 'LOGGED' })
 const danmakuEnabled = computed(() => resource.value?.danmakuEnabled !== 0)
 const danmakuPermission = computed(() => resource.value?.danmakuPermission || 'LOGGED')
+const noteShareToken = computed(() => typeof route.query.shareToken === 'string' ? route.query.shareToken : '')
 const danmakuOwnerOrAdmin = computed(() => {
   const user = currentUser.value
   if (!user || !resource.value) return false
@@ -400,8 +619,26 @@ const selectedChild = computed(() => children.value.find((item) => item.id === s
 const previewTarget = computed(() => isFolder.value ? selectedChild.value : resource.value)
 const previewUrl = computed(() => previewTarget.value ? resourceApi.previewUrl(previewTarget.value.id) : '')
 const previewKind = computed(() => detectPreviewKind(previewTarget.value))
+const enhanceMediaKind = computed(() => detectEnhanceMediaKind(previewTarget.value))
+const mediaEnhanceSupported = computed(() => Boolean(enhanceMediaKind.value))
 const canDeleteResource = computed(() => canDelete(resource.value))
 const canDeletePreviewTarget = computed(() => canDelete(previewTarget.value))
+const canEnhancePreviewTarget = computed(() => canDelete(previewTarget.value))
+const ffmpegReady = computed(() => Boolean(mediaCapability.value?.ffmpegAvailable))
+const hasActiveEnhancementJob = computed(() => mediaJobs.value.some(isEnhancementActive))
+const canSubmitEnhancement = computed(() => {
+  return Boolean(store.state.token && previewTarget.value && mediaEnhanceSupported.value
+    && canEnhancePreviewTarget.value && ffmpegReady.value && !hasActiveEnhancementJob.value)
+})
+const enhancementSummary = computed(() => {
+  if (enhanceMediaKind.value === 'video') {
+    const fps = Number(enhanceForm.targetFps || 0)
+    const fpsText = fps > 0 ? `${fps} FPS` : '原帧率'
+    const motion = enhanceForm.frameInterpolation && fps > 0 ? '运动插帧' : '帧率转换'
+    return `${enhanceForm.targetResolution} / ${fpsText} / ${motion} / ${enhanceForm.audioPreset}`
+  }
+  return `FLAC 输出 / ${enhanceForm.audioPreset} / 响度标准化 / 波峰限幅`
+})
 const previewLabel = computed(() => {
   const labels = {
     image: '图片',
@@ -415,6 +652,18 @@ const previewLabel = computed(() => {
     unsupported: '仅下载'
   }
   return labels[previewKind.value] || labels.unsupported
+})
+const textPreviewSegments = computed(() => {
+  const text = previewText.value || ''
+  const anchor = highlightAnchorText.value || ''
+  if (!anchor) return [{ text, highlight: false }]
+  const index = text.indexOf(anchor)
+  if (index < 0) return [{ text, highlight: false }]
+  return [
+    { text: text.slice(0, index), highlight: false },
+    { text: text.slice(index, index + anchor.length), highlight: true },
+    { text: text.slice(index + anchor.length), highlight: false }
+  ].filter((segment) => segment.text)
 })
 
 async function load() {
@@ -432,6 +681,7 @@ async function load() {
     selectedChildId.value = null
   }
   comments.value = await commentApi.list(route.params.id)
+  await loadResourceNotes()
 }
 
 function goBack() {
@@ -458,9 +708,18 @@ function detectPreviewKind(item) {
   if (name.endsWith('.pptx')) return 'pptx'
   if (/\.(doc|ppt|xls|xlsx|xlsm|xlsb|csv|ods)$/i.test(name)) return 'legacy-office'
   if (type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(name)) return 'video'
-  if (type.startsWith('audio/') || /\.(mp3|wav|ogg)$/i.test(name)) return 'audio'
+  if (type.startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a|aac)$/i.test(name)) return 'audio'
   if (type.startsWith('text/') || name.endsWith('.txt')) return 'text'
   return 'unsupported'
+}
+
+function detectEnhanceMediaKind(item) {
+  if (!item || item.resourceType === 'FOLDER') return ''
+  const type = (item.fileType || '').toLowerCase()
+  const name = (item.fileName || '').toLowerCase()
+  if (type.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(name)) return 'video'
+  if (type.startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a|aac)$/i.test(name)) return 'audio'
+  return ''
 }
 
 function fileLabel(name = '') {
@@ -469,8 +728,8 @@ function fileLabel(name = '') {
   if (lower.endsWith('.docx')) return 'DOC'
   if (lower.endsWith('.pptx')) return 'PPT'
   if (/\.(png|jpe?g|gif|webp)$/.test(lower)) return 'IMG'
-  if (/\.(mp4|mov|webm)$/.test(lower)) return 'VID'
-  if (/\.(mp3|wav|ogg)$/.test(lower)) return 'AUD'
+  if (/\.(mp4|mov|webm|mkv|avi|m4v)$/.test(lower)) return 'VID'
+  if (/\.(mp3|wav|ogg|flac|m4a|aac)$/.test(lower)) return 'AUD'
   if (lower.endsWith('.txt')) return 'TXT'
   return 'FILE'
 }
@@ -479,6 +738,10 @@ function formatSize(size = 0) {
   if (size < 1024) return `${size} B`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function splitTags(tags = '') {
+  return String(tags || '').split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 6)
 }
 
 function normalizePath(path = '') {
@@ -589,20 +852,418 @@ function selectFirstInCurrentDirectory() {
   selectedChildId.value = first.id
 }
 
-function analyzeCurrentFolder() {
-  if (!resource.value || !isFolder.value) {
-    ElMessage.warning('分析 Agent 只支持用户上传的虚拟文件夹')
+async function loadResourceNotes() {
+  if (!store.state.token || !previewTarget.value?.id) {
+    resourceNotes.value = []
     return
   }
-  if (!currentAnalysisFileCount.value) {
-    ElMessage.info('当前虚拟文件夹下没有可分析文件')
+  try {
+    resourceNotes.value = await noteApi.listByResource(previewTarget.value.id)
+  } catch {
+    resourceNotes.value = []
+  }
+}
+
+async function loadMediaCapability() {
+  try {
+    mediaCapability.value = await mediaEnhancementApi.capabilities()
+  } catch {
+    mediaCapability.value = {
+      ffmpegAvailable: false,
+      message: '媒体增强能力检测失败'
+    }
+  }
+}
+
+async function loadEnhancementJobs() {
+  if (!store.state.token || !previewTarget.value?.id || !mediaEnhanceSupported.value || !canEnhancePreviewTarget.value) {
+    mediaJobs.value = []
+    stopEnhancementPolling()
+    return
+  }
+  loadingEnhancements.value = true
+  try {
+    mediaJobs.value = await mediaEnhancementApi.list(previewTarget.value.id)
+    syncEnhancementPolling()
+  } catch {
+    mediaJobs.value = []
+    stopEnhancementPolling()
+  } finally {
+    loadingEnhancements.value = false
+  }
+}
+
+async function refreshEnhancementPanel() {
+  if (!mediaEnhanceSupported.value) {
+    mediaJobs.value = []
+    stopEnhancementPolling()
+    return
+  }
+  await loadMediaCapability()
+  await loadEnhancementJobs()
+}
+
+async function submitMediaEnhancement() {
+  if (!canSubmitEnhancement.value || !previewTarget.value) return
+  submittingEnhancement.value = true
+  try {
+    const isVideo = enhanceMediaKind.value === 'video'
+    const job = await mediaEnhancementApi.submit(previewTarget.value.id, {
+      targetResolution: isVideo ? enhanceForm.targetResolution : 'ORIGINAL',
+      targetFps: isVideo ? Number(enhanceForm.targetFps || 0) : null,
+      videoPreset: enhanceForm.videoPreset,
+      audioPreset: enhanceForm.audioPreset,
+      frameInterpolation: isVideo && enhanceForm.frameInterpolation && Number(enhanceForm.targetFps || 0) > 0,
+      aiUpscale: false
+    })
+    ElMessage.success(`增强任务 #${job.id} 已提交`)
+    await loadEnhancementJobs()
+  } catch (error) {
+    ElMessage.error(error.message || '提交增强任务失败')
+  } finally {
+    submittingEnhancement.value = false
+  }
+}
+
+async function cancelMediaEnhancement(job) {
+  if (!job?.id) return
+  try {
+    await mediaEnhancementApi.cancel(job.id)
+    ElMessage.success('增强任务已取消')
+    await loadEnhancementJobs()
+  } catch (error) {
+    ElMessage.error(error.message || '取消增强任务失败')
+  }
+}
+
+function openEnhancedResource(job) {
+  if (!job?.outputResourceId) return
+  router.push(`/resources/${job.outputResourceId}`)
+}
+
+function isEnhancementActive(job) {
+  return ['PENDING', 'RUNNING'].includes(job?.status)
+}
+
+function enhancementStatusLabel(status) {
+  return ({
+    PENDING: '排队中',
+    RUNNING: '处理中',
+    SUCCESS: '已完成',
+    FAILED: '失败',
+    CANCELLED: '已取消'
+  }[status] || status || '未知')
+}
+
+function enhancementStatusType(job) {
+  return ({
+    PENDING: 'info',
+    RUNNING: 'warning',
+    SUCCESS: 'success',
+    FAILED: 'danger',
+    CANCELLED: 'info'
+  }[job?.status] || 'info')
+}
+
+function enhancementProgressStatus(job) {
+  if (job?.status === 'SUCCESS') return 'success'
+  if (job?.status === 'FAILED') return 'exception'
+  if (job?.status === 'CANCELLED') return 'warning'
+  return undefined
+}
+
+function syncEnhancementPolling() {
+  if (mediaJobs.value.some(isEnhancementActive)) {
+    startEnhancementPolling()
+  } else {
+    stopEnhancementPolling()
+  }
+}
+
+function startEnhancementPolling() {
+  if (enhancementTimer) return
+  enhancementTimer = window.setInterval(() => {
+    loadEnhancementJobs()
+  }, 2500)
+}
+
+function stopEnhancementPolling() {
+  if (!enhancementTimer) return
+  window.clearInterval(enhancementTimer)
+  enhancementTimer = 0
+}
+
+function formatJobTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+async function openCurrentSnippetNote() {
+  if (!store.state.token) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  if (!previewTarget.value) {
+    ElMessage.info('请先选择要记录的文件')
+    return
+  }
+
+  const anchor = await buildCurrentAnchor()
+  resetNoteForm({
+    title: `${previewTarget.value.fileName || previewTarget.value.title || resource.value.title} 片段笔记`,
+    category: resource.value?.categoryName || '',
+    content: '',
+    resourceId: previewTarget.value.id,
+    ...anchor
+  })
+  noteDialogVisible.value = true
+}
+
+async function buildCurrentAnchor() {
+  const selected = selectedTextSnippet()
+  if (previewKind.value === 'video') {
+    const seconds = videoPlayerRef.value?.getCurrentTime?.() || 0
+    return {
+      anchorType: 'VIDEO',
+      anchorText: selected || `视频 ${formatAnchorSeconds(seconds)} 处`,
+      anchorImage: videoPlayerRef.value?.captureSnapshot?.() || '',
+      anchorSeconds: seconds
+    }
+  }
+  if (['text', 'docx', 'pptx', 'pdf', 'legacy-office'].includes(previewKind.value)) {
+    return {
+      anchorType: previewKind.value === 'text' ? 'TEXT' : 'DOCUMENT',
+      anchorText: selected || fallbackDocumentSnippet(),
+      anchorImage: '',
+      anchorSeconds: null
+    }
+  }
+  return {
+    anchorType: 'RESOURCE',
+    anchorText: selected || `${previewLabel.value}：${previewTarget.value.fileName || previewTarget.value.title || resource.value.title}`,
+    anchorImage: '',
+    anchorSeconds: null
+  }
+}
+
+function selectedTextSnippet() {
+  const text = window.getSelection?.()?.toString?.().trim() || ''
+  return trimSnippet(text, 1000)
+}
+
+function fallbackDocumentSnippet() {
+  if (previewKind.value === 'text' && previewText.value) {
+    return trimSnippet(previewText.value, 360)
+  }
+  return `${previewLabel.value}：${previewTarget.value?.fileName || previewTarget.value?.title || resource.value?.title || ''}`
+}
+
+function resetNoteForm(values = {}) {
+  Object.assign(noteForm, {
+    id: null,
+    title: '',
+    content: '',
+    category: '',
+    resourceId: previewTarget.value?.id || null,
+    anchorType: 'RESOURCE',
+    anchorText: '',
+    anchorImage: '',
+    anchorSeconds: null
+  }, values)
+}
+
+function editResourceNote(note) {
+  resetNoteForm({
+    id: note.id,
+    title: note.title,
+    content: note.content,
+    category: note.category || '',
+    resourceId: note.resourceId,
+    anchorType: note.anchorType || 'RESOURCE',
+    anchorText: note.anchorText || '',
+    anchorImage: note.anchorImage || '',
+    anchorSeconds: note.anchorSeconds
+  })
+  noteDialogVisible.value = true
+}
+
+async function saveResourceNote() {
+  if (!noteForm.title || !noteForm.content) {
+    ElMessage.warning('请填写标题和内容')
+    return
+  }
+  const payload = {
+    title: noteForm.title,
+    content: noteForm.content,
+    category: noteForm.category || null,
+    resourceId: noteForm.resourceId || previewTarget.value?.id,
+    anchorType: noteForm.anchorType,
+    anchorText: noteForm.anchorText || null,
+    anchorImage: noteForm.anchorImage || null,
+    anchorSeconds: noteForm.anchorSeconds,
+    isFavorite: 0
+  }
+  savingNote.value = true
+  try {
+    if (noteForm.id) {
+      await noteApi.update(noteForm.id, payload)
+      ElMessage.success('笔记已更新')
+    } else {
+      await noteApi.create(payload)
+      ElMessage.success('片段笔记已保存')
+    }
+    noteDialogVisible.value = false
+    await loadResourceNotes()
+  } finally {
+    savingNote.value = false
+  }
+}
+
+async function deleteResourceNote(note) {
+  await ElMessageBox.confirm(`确定删除「${note.title}」吗？`, '删除笔记', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    cancelButtonText: '取消'
+  })
+  await noteApi.remove(note.id)
+  ElMessage.success('笔记已删除')
+  await loadResourceNotes()
+}
+
+async function confirmJumpToNote(note) {
+  await ElMessageBox.confirm('是否跳转到这条笔记记录的资源片段？', '跳转确认', {
+    confirmButtonText: '跳转',
+    cancelButtonText: '取消'
+  })
+  if (Number(note.resourceId) === Number(previewTarget.value?.id)) {
+    await applyNoteAnchor(note)
     return
   }
   router.push({
-    path: '/agent/analyze',
+    path: `/resources/${note.resourceId}`,
+    query: {
+      noteId: note.id,
+      t: note.anchorSeconds !== null && note.anchorSeconds !== undefined ? note.anchorSeconds : undefined
+    }
+  })
+}
+
+async function applyRouteAnchor() {
+  if (!store.state.token && !route.query.t) return
+  if (route.query.noteId && store.state.token) {
+    try {
+      const note = await noteApi.get(route.query.noteId)
+      await applyNoteAnchor(note)
+      return
+    } catch {
+      return
+    }
+  }
+  const seconds = Number(route.query.t)
+  if (Number.isFinite(seconds) && previewKind.value === 'video') {
+    await nextTick()
+    setTimeout(() => videoPlayerRef.value?.seekToTime?.(seconds), 250)
+  }
+}
+
+async function applyNoteAnchor(note) {
+  highlightAnchorText.value = ''
+  document.querySelector('.preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (note.anchorType === 'VIDEO' && note.anchorSeconds !== null && note.anchorSeconds !== undefined && previewKind.value === 'video') {
+    await nextTick()
+    setTimeout(() => videoPlayerRef.value?.seekToTime?.(note.anchorSeconds), 250)
+    ElMessage.success(`已定位到 ${formatAnchorSeconds(note.anchorSeconds)}`)
+    return
+  }
+  if (note.anchorText && previewKind.value === 'text') {
+    highlightAnchorText.value = note.anchorText
+    await nextTick()
+    const mark = textPreviewRef.value?.querySelector?.('.note-anchor-highlight')
+    if (mark) {
+      mark.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+  }
+  ElMessage.info('已打开关联资源，请根据片段预览查看上下文')
+}
+
+function hasAnchorPreview(note) {
+  return Boolean(note?.anchorImage || note?.anchorText || note?.anchorSeconds !== null && note?.anchorSeconds !== undefined)
+}
+
+function anchorFallback(note) {
+  if (note?.anchorSeconds !== null && note?.anchorSeconds !== undefined) {
+    return `视频 ${formatAnchorSeconds(note.anchorSeconds)} 处`
+  }
+  return note?.resourceTitle || note?.title || '资源片段'
+}
+
+function anchorTypeLabel(type) {
+  return ({
+    VIDEO: '视频画面',
+    TEXT: '文本片段',
+    DOCUMENT: '文档片段',
+    RESOURCE: '资源片段'
+  }[type] || '资源片段')
+}
+
+function formatAnchorSeconds(seconds) {
+  const value = Number(seconds || 0)
+  const total = Math.max(0, Math.floor(value))
+  const hour = Math.floor(total / 3600)
+  const minute = Math.floor((total % 3600) / 60)
+  const second = total % 60
+  if (hour > 0) {
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`
+  }
+  return `${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`
+}
+
+function previewNoteContent(content = '') {
+  return trimSnippet(content, 160)
+}
+
+function trimSnippet(value = '', maxLength = 160) {
+  const text = String(value || '').trim()
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+}
+
+function understandResource() {
+  if (!resource.value) return
+  router.push({
+    path: '/agent/understand',
     query: {
       resourceId: resource.value.id,
-      path: currentPath.value || undefined
+      scope: isFolder.value ? 'folder' : undefined
+    }
+  })
+}
+
+function understandPreviewTarget() {
+  if (!previewTarget.value) return
+  router.push({
+    path: '/agent/understand',
+    query: { resourceId: previewTarget.value.id }
+  })
+}
+
+function understandCurrentFolder() {
+  if (!resource.value || !isFolder.value) {
+    ElMessage.warning('Agent 理解当前目录只支持用户上传的虚拟文件夹')
+    return
+  }
+  if (!currentAnalysisFileCount.value) {
+    ElMessage.info('当前虚拟文件夹下没有可理解文件')
+    return
+  }
+  router.push({
+    path: '/agent/understand',
+    query: {
+      resourceId: resource.value.id,
+      path: currentPath.value || undefined,
+      scope: 'folder'
     }
   })
 }
@@ -705,16 +1366,16 @@ async function deleteLogicalFolder(path) {
   await load()
 }
 
-function downloadResource() {
+async function downloadResource() {
   if (!store.state.token) {
     ElMessage.warning('请先登录')
     return
   }
   if (!resource.value) return
-  window.open(resourceApi.downloadUrl(resource.value.id), '_blank')
+  await downloadTarget(resource.value)
 }
 
-function downloadPreviewTarget() {
+async function downloadPreviewTarget() {
   if (!store.state.token) {
     ElMessage.warning('请先登录')
     return
@@ -723,7 +1384,64 @@ function downloadPreviewTarget() {
     ElMessage.warning('请先选择文件')
     return
   }
-  window.open(resourceApi.downloadUrl(previewTarget.value.id), '_blank')
+  await downloadTarget(previewTarget.value)
+}
+
+async function downloadTarget(item) {
+  try {
+    const response = await fetch(resourceApi.downloadUrl(item.id), {
+      headers: {
+        Authorization: `Bearer ${store.state.token}`
+      }
+    })
+    const contentType = response.headers.get('content-type') || ''
+    if (!response.ok) {
+      throw new Error(`下载失败：${response.status}`)
+    }
+    if (contentType.includes('application/json')) {
+      const data = await response.json()
+      throw new Error(data.message || '下载失败')
+    }
+    const blob = await response.blob()
+    saveBlob(blob, parseDownloadFilename(response.headers.get('content-disposition')) || fallbackDownloadName(item))
+  } catch (error) {
+    ElMessage.error(error.message || '下载失败')
+  }
+}
+
+function parseDownloadFilename(disposition = '') {
+  const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Name) {
+    try {
+      return decodeURIComponent(utf8Name[1])
+    } catch {
+      return utf8Name[1]
+    }
+  }
+  return disposition.match(/filename="?([^"]+)"?/i)?.[1] || ''
+}
+
+function fallbackDownloadName(item) {
+  const name = item.fileName || item.title || 'download'
+  if (item.resourceType === 'FOLDER' && !name.toLowerCase().endsWith('.zip')) {
+    return `${safeDownloadName(name)}.zip`
+  }
+  return safeDownloadName(name)
+}
+
+function safeDownloadName(name) {
+  return String(name || 'download').replace(/[\\/:*?"<>|]/g, '_')
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename || 'download'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 function openPreview() {
@@ -890,6 +1608,7 @@ watch([previewKind, previewTarget], async ([kind]) => {
   pptxSlides.value = []
   legacyHtml.value = ''
   legacyError.value = ''
+  highlightAnchorText.value = ''
   clearObjectUrls()
   if (kind === 'text' && previewTarget.value) {
     previewText.value = await resourceApi.previewText(previewTarget.value.id)
@@ -903,6 +1622,17 @@ watch([previewKind, previewTarget], async ([kind]) => {
   if (kind === 'legacy-office') {
     await loadLegacyPreview()
   }
+  await loadResourceNotes()
+  await refreshEnhancementPanel()
+  await applyRouteAnchor()
+})
+
+watch(() => route.params.id, async () => {
+  await load()
+})
+
+watch(() => [route.query.noteId, route.query.t], async () => {
+  await applyRouteAnchor()
 })
 
 async function loadLegacyPreview() {
@@ -939,5 +1669,272 @@ function reloadLegacy() {
 }
 
 onMounted(load)
-onBeforeUnmount(clearObjectUrls)
+onBeforeUnmount(() => {
+  clearObjectUrls()
+  stopEnhancementPolling()
+})
 </script>
+
+<style scoped>
+.detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.detail-tags span {
+  max-width: 160px;
+  overflow: hidden;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(238, 246, 246, 0.96);
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-enhance-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.media-enhance-header,
+.media-job-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.media-enhance-header h2 {
+  margin: 4px 0 0;
+}
+
+.media-enhance-controls {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.media-enhance-form {
+  max-width: 420px;
+}
+
+.media-enhance-summary {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(196, 213, 228, 0.86);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.media-enhance-summary strong,
+.media-job-title strong {
+  color: #1f2937;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.media-enhance-summary span,
+.media-job-main p,
+.media-job-main > span {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.media-enhance-actions,
+.media-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.media-job-list {
+  display: grid;
+  gap: 12px;
+}
+
+.media-job-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid rgba(196, 213, 228, 0.86);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.media-job-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.note-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.note-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.note-panel-header h2 {
+  margin: 4px 0 0;
+}
+
+.resource-note-list {
+  display: grid;
+  gap: 12px;
+}
+
+.resource-note-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(196, 213, 228, 0.8);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.resource-note-main {
+  min-width: 0;
+}
+
+.resource-note-card h3 {
+  margin: 0 0 6px;
+  color: #1f2937;
+  font-size: 17px;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.resource-note-card p {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.resource-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.resource-note-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.note-snippet-card,
+.note-dialog-snippet {
+  display: grid;
+  grid-template-columns: minmax(96px, 160px) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(196, 213, 228, 0.88);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #1f2937;
+  text-align: left;
+}
+
+.note-snippet-card {
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.note-snippet-card:hover {
+  border-color: var(--primary);
+  background: #eef7f7;
+}
+
+.note-snippet-card img,
+.note-dialog-snippet img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 4px;
+  object-fit: cover;
+  background: #111827;
+}
+
+.note-snippet-card:not(:has(img)),
+.note-dialog-snippet:not(:has(img)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.snippet-text,
+.note-dialog-snippet p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  word-break: break-word;
+}
+
+.note-dialog-snippet {
+  margin: 0 0 16px;
+}
+
+.note-dialog-snippet strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #0f766e;
+  font-size: 13px;
+}
+
+.note-anchor-highlight {
+  padding: 2px 0;
+  background: #fff2a8;
+  color: #111827;
+}
+
+@media (max-width: 720px) {
+  .media-enhance-header,
+  .media-enhance-controls,
+  .media-job-card,
+  .media-job-actions,
+  .note-panel-header,
+  .resource-note-card,
+  .resource-note-actions {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .media-enhance-form {
+    max-width: none;
+  }
+
+  .note-snippet-card,
+  .note-dialog-snippet {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

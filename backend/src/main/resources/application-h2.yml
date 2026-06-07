@@ -38,6 +38,11 @@ file:
   upload-dir: ./uploads
   public-prefix: /uploads
 
+media:
+  ffmpeg-path: ${FFMPEG_PATH:}
+  ffprobe-path: ${FFPROBE_PATH:}
+  worker-threads: ${MEDIA_WORKER_THREADS:1}
+
 app:
   cors:
     allowed-origins:

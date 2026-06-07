@@ -101,7 +101,7 @@ public class ResourceAgentLmService {
 
     private String systemPrompt() {
         return String.join("\n",
-                "You are the summary layer for a learning-resource search agent.",
+                "You are the understanding layer for learning resources uploaded by users.",
                 "Return ONLY strict JSON. Do not wrap it in markdown.",
                 "The JSON schema is:",
                 "{\"summary\":\"string\",\"knowledgePoints\":[\"string\"],\"outline\":[\"string\"],\"nextActions\":[\"string\"]}",

@@ -1,3 +1,9 @@
+DROP TABLE IF EXISTS view_history;
+DROP TABLE IF EXISTS media_enhancement_job;
+DROP TABLE IF EXISTS note_share;
+DROP TABLE IF EXISTS note_tag_relation;
+DROP TABLE IF EXISTS note_tag;
+DROP TABLE IF EXISTS note;
 DROP TABLE IF EXISTS forum_comment;
 DROP TABLE IF EXISTS forum_post_resource;
 DROP TABLE IF EXISTS forum_post;
@@ -45,6 +51,7 @@ CREATE TABLE resource (
   relative_path VARCHAR(500),
   file_count INT DEFAULT 0,
   category_id BIGINT,
+  tags VARCHAR(128),
   user_id BIGINT NOT NULL,
   download_count INT DEFAULT 0,
   view_count INT DEFAULT 0,
@@ -56,6 +63,87 @@ CREATE TABLE resource (
   create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   update_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE media_enhancement_job (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  source_resource_id BIGINT NOT NULL,
+  output_resource_id BIGINT,
+  user_id BIGINT NOT NULL,
+  media_type VARCHAR(20) NOT NULL,
+  target_resolution VARCHAR(20) DEFAULT 'ORIGINAL',
+  target_fps INT,
+  video_preset VARCHAR(20) DEFAULT 'BALANCED',
+  audio_preset VARCHAR(20) DEFAULT 'HIFI',
+  ai_upscale TINYINT NOT NULL DEFAULT 0,
+  frame_interpolation TINYINT NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  progress INT NOT NULL DEFAULT 0,
+  message VARCHAR(500),
+  output_file_path VARCHAR(500),
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_media_job_source ON media_enhancement_job(source_resource_id);
+CREATE INDEX idx_media_job_user ON media_enhancement_job(user_id);
+CREATE INDEX idx_media_job_status ON media_enhancement_job(status);
+CREATE INDEX idx_media_job_output ON media_enhancement_job(output_resource_id);
+
+CREATE TABLE note (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  content CLOB NOT NULL,
+  category VARCHAR(50),
+  resource_id BIGINT,
+  anchor_type VARCHAR(20),
+  anchor_text CLOB,
+  anchor_image CLOB,
+  anchor_seconds DECIMAL(10,3),
+  user_id BIGINT NOT NULL,
+  is_favorite TINYINT NOT NULL DEFAULT 0,
+  status TINYINT NOT NULL DEFAULT 1,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_note_user_id ON note(user_id);
+CREATE INDEX idx_note_resource_id ON note(resource_id);
+CREATE INDEX idx_note_category ON note(category);
+CREATE INDEX idx_note_create_time ON note(create_time);
+
+CREATE TABLE note_tag (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(50) NOT NULL,
+  user_id BIGINT NOT NULL,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_note_tag_user_name UNIQUE (user_id, name)
+);
+
+CREATE TABLE note_tag_relation (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  note_id BIGINT NOT NULL,
+  tag_id BIGINT NOT NULL,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_note_tag_relation UNIQUE (note_id, tag_id)
+);
+
+CREATE INDEX idx_note_tag_relation_note_id ON note_tag_relation(note_id);
+CREATE INDEX idx_note_tag_relation_tag_id ON note_tag_relation(tag_id);
+
+CREATE TABLE note_share (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  token VARCHAR(64) NOT NULL,
+  note_id BIGINT NOT NULL,
+  owner_id BIGINT NOT NULL,
+  import_count INT NOT NULL DEFAULT 0,
+  status TINYINT NOT NULL DEFAULT 1,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_note_share_token UNIQUE (token)
+);
+
+CREATE INDEX idx_note_share_note_owner ON note_share(note_id, owner_id);
+CREATE INDEX idx_note_share_create_time ON note_share(create_time);
 
 CREATE TABLE comment (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -149,3 +237,15 @@ CREATE TABLE forum_comment (
   create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   update_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE view_history (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  resource_id BIGINT NOT NULL,
+  view_duration INT DEFAULT 0,
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_vh_user_id ON view_history(user_id);
+CREATE INDEX idx_vh_resource_id ON view_history(resource_id);
+CREATE INDEX idx_vh_create_time ON view_history(create_time);

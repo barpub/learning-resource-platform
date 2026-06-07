@@ -97,13 +97,22 @@
           </div>
 
           <div class="control-right">
+            <select
+              v-if="hasDanmakuResource && hasShareToken"
+              v-model="visibilityMode"
+              class="view-select"
+              title="弹幕可见范围"
+            >
+              <option value="SHARE_NOTE">分享者笔记</option>
+              <option value="ALL">全部弹幕</option>
+            </select>
             <div class="quality-controls" :title="processingLabel">
               <button
                 type="button"
                 class="ctrl-btn quality-btn"
-                :class="{ active: dynamicRepair }"
-                title="人声分离强化：弱化背景杂音，强化人声，并压峰、抬细节、减少忽大忽小"
-                @click="dynamicRepair = !dynamicRepair"
+                :class="{ active: vocalEnhance }"
+                title="人声增强：弱化背景杂音，强化人声，并压峰、波峰平缓、抬细节、减少忽大忽小"
+                @click="vocalEnhance = !vocalEnhance"
               >
                 Vox
               </button>
@@ -120,7 +129,7 @@
                 type="button"
                 class="ctrl-btn quality-btn"
                 :class="{ active: limiterEnabled }"
-                title="Limiter protect"
+                title="波峰平缓：输出限幅和压峰，减少忽大忽小"
                 @click="limiterEnabled = !limiterEnabled"
               >
                 Lim
@@ -254,6 +263,7 @@
     <div class="danmaku-meta">
       <span v-if="hasDanmakuResource">共 {{ danmakus.length }} 条弹幕</span>
       <span v-if="hasDanmakuResource" class="danmaku-permission">权限：{{ permissionLabel }}</span>
+      <span v-if="hasDanmakuResource && hasShareToken" class="danmaku-permission">视图：{{ visibilityLabel }}</span>
       <span class="quality-meter">Audio {{ processingLabel }} · Peak {{ peakLevel }}% · RMS {{ rmsLevel }}%</span>
     </div>
 
@@ -309,6 +319,7 @@ const props = defineProps({
   src: { type: String, required: true },
   enabled: { type: Boolean, default: true },
   permission: { type: String, default: 'LOGGED' },
+  shareToken: { type: String, default: '' },
   currentUser: { type: Object, default: null },
   isOwnerOrAdmin: { type: Boolean, default: false }
 })
@@ -323,6 +334,7 @@ const progressRef = ref(null)
 
 const danmakus = ref([])
 const showDanmaku = ref(true)
+const visibilityMode = ref(props.shareToken ? 'SHARE_NOTE' : 'ALL')
 const sending = ref(false)
 const composer = reactive({ content: '', type: 'scroll', color: '#ffffff' })
 const paletteMode = ref('solid')
@@ -340,7 +352,7 @@ const controlsVisible = ref(true)
 let hideControlsTimer = null
 
 const {
-  dynamicRepair,
+  vocalEnhance,
   hiResEnhance,
   limiterEnabled,
   peakLevel,
@@ -421,6 +433,8 @@ const permissionHint = computed(() => {
 })
 
 const hasDanmakuResource = computed(() => props.resourceId !== null && props.resourceId !== undefined && props.resourceId !== '')
+const hasShareToken = computed(() => Boolean(String(props.shareToken || '').trim()))
+const visibilityLabel = computed(() => visibilityMode.value === 'SHARE_NOTE' ? '分享者笔记' : '全部弹幕')
 const playedPercent = computed(() => duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0)
 const bufferedPercent = computed(() => duration.value > 0 ? (buffered.value / duration.value) * 100 : 0)
 
@@ -508,6 +522,35 @@ function seekTo(event) {
   video.currentTime = ratio * duration.value
 }
 
+function seekToTime(seconds) {
+  const video = videoRef.value
+  const target = Number(seconds)
+  if (!video || !Number.isFinite(target)) return
+  video.currentTime = Math.max(0, Math.min(target, video.duration || target))
+}
+
+function getCurrentTime() {
+  return Number((videoRef.value?.currentTime || 0).toFixed(3))
+}
+
+function captureSnapshot() {
+  const video = videoRef.value
+  if (!video || !video.videoWidth || !video.videoHeight) return ''
+  const maxWidth = 420
+  const scale = Math.min(1, maxWidth / video.videoWidth)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
+  const context = canvas.getContext('2d')
+  if (!context) return ''
+  try {
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.62)
+  } catch {
+    return ''
+  }
+}
+
 function toggleFullscreen() {
   const stage = stageRef.value
   if (!stage) return
@@ -554,7 +597,10 @@ async function loadDanmakus() {
     return
   }
   try {
-    const list = await danmakuApi.list(props.resourceId)
+    const params = visibilityMode.value === 'SHARE_NOTE'
+      ? { mode: 'SHARE_NOTE', shareToken: props.shareToken }
+      : undefined
+    const list = await danmakuApi.list(props.resourceId, params)
     danmakus.value = (list || [])
       .map((item) => ({ ...item, timeSeconds: Number(item.timeSeconds || 0) }))
       .sort((a, b) => a.timeSeconds - b.timeSeconds)
@@ -819,13 +865,27 @@ watch(() => props.resourceId, async () => {
   await loadDanmakus()
 })
 
+watch(() => props.shareToken, async (token) => {
+  visibilityMode.value = token ? 'SHARE_NOTE' : 'ALL'
+  await loadDanmakus()
+})
+
+watch(visibilityMode, async () => {
+  await loadDanmakus()
+})
+
 watch(() => props.src, () => {
   scrollActive.value = []
   topActive.value = []
   bottomActive.value = []
 })
 
-defineExpose({ reload: loadDanmakus })
+defineExpose({
+  reload: loadDanmakus,
+  getCurrentTime,
+  seekToTime,
+  captureSnapshot
+})
 </script>
 
 <style scoped>
@@ -1159,6 +1219,22 @@ defineExpose({ reload: loadDanmakus })
   align-items: center;
   gap: 4px;
   margin-left: auto;
+}
+
+.view-select {
+  max-width: 108px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+  font-size: 12px;
+  outline: none;
+}
+
+.view-select option {
+  color: #111827;
 }
 
 /* Palette panel */

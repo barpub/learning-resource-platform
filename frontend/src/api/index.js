@@ -99,6 +99,24 @@ export const resourceApi = {
   }
 }
 
+export const mediaEnhancementApi = {
+  capabilities() {
+    return request.get('/api/media-enhancements/capabilities')
+  },
+  submit(resourceId, data) {
+    return request.post(`/api/resources/${resourceId}/enhancements`, data)
+  },
+  list(resourceId) {
+    return request.get(`/api/resources/${resourceId}/enhancements`)
+  },
+  get(id) {
+    return request.get(`/api/media-enhancements/${id}`)
+  },
+  cancel(id) {
+    return request.post(`/api/media-enhancements/${id}/cancel`)
+  }
+}
+
 export const betaRecommendationApi = {
   recommend(data) {
     return request.post('/api/beta/recommendations', data)
@@ -111,11 +129,8 @@ export const globalSearchApi = {
   }
 }
 
-export const resourceAgentApi = {
-  search(params) {
-    return request.get('/api/agent/search', { params, timeout: 70000 })
-  },
-  summarizeLocal(id) {
+export const resourceUnderstandingApi = {
+  summarizeResource(id) {
     return request.get(`/api/agent/resources/${id}/summary`)
   },
   summarizeFolder(id, params) {
@@ -127,8 +142,8 @@ export const resourceAgentApi = {
 }
 
 export const danmakuApi = {
-  list(resourceId) {
-    return request.get(`/api/resources/${resourceId}/danmakus`)
+  list(resourceId, params) {
+    return request.get(`/api/resources/${resourceId}/danmakus`, { params })
   },
   send(resourceId, data) {
     return request.post(`/api/resources/${resourceId}/danmakus`, data)
@@ -237,5 +252,44 @@ export const forumApi = {
   },
   removeComment(id) {
     return request.delete(`/api/forum/comments/${id}`)
+  }
+}
+
+export const noteApi = {
+  list(params) {
+    return request.get('/api/notes', { params })
+  },
+  get(id) {
+    return request.get(`/api/notes/${id}`)
+  },
+  create(data) {
+    return request.post('/api/notes', data)
+  },
+  update(id, data) {
+    return request.put(`/api/notes/${id}`, data)
+  },
+  share(id) {
+    return request.post(`/api/notes/${id}/share`)
+  },
+  getShare(token) {
+    return request.get(`/api/notes/share/${token}`)
+  },
+  importShare(token) {
+    return request.post(`/api/notes/share/${token}/import`)
+  },
+  remove(id) {
+    return request.delete(`/api/notes/${id}`)
+  },
+  listTags() {
+    return request.get('/api/notes/tags')
+  },
+  listByResource(resourceId) {
+    return request.get(`/api/notes/by-resource/${resourceId}`)
+  },
+  merge(data) {
+    return request.post('/api/notes/merge', data)
+  },
+  export(params) {
+    return request.get('/api/notes/export', { params })
   }
 }

@@ -9,6 +9,7 @@ backend/target/
 runtime/
 backend/uploads/
 backend/previews/
+backend/tools/ffmpeg/
 
 # Logs
 *.log
@@ -31,4 +32,3 @@ Thumbs.db
 
 # Maven wrapper/cache noise
 .mvn/timing.properties
-

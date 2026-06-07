@@ -6,9 +6,11 @@ import com.example.platform.dto.ResourceDTO;
 import com.example.platform.entity.DownloadRecord;
 import com.example.platform.entity.Resource;
 import com.example.platform.entity.User;
+import com.example.platform.entity.ViewHistory;
 import com.example.platform.mapper.DownloadRecordMapper;
 import com.example.platform.mapper.FavoriteMapper;
 import com.example.platform.mapper.ResourceMapper;
+import com.example.platform.mapper.ViewHistoryMapper;
 import com.example.platform.security.CurrentUser;
 import com.example.platform.utils.RedisUtil;
 import java.io.IOException;
@@ -36,15 +38,20 @@ public class ResourceService {
     private final DownloadRecordMapper downloadRecordMapper;
     private final FileStorageService fileStorageService;
     private final RedisUtil redisUtil;
+    private final ViewHistoryMapper viewHistoryMapper;
+    private static final int MAX_TAG_COUNT = 6;
+    private static final int MAX_TAG_LENGTH = 16;
+    private static final int MAX_TAGS_TEXT_LENGTH = 128;
 
     public ResourceService(ResourceMapper resourceMapper, FavoriteMapper favoriteMapper,
                            DownloadRecordMapper downloadRecordMapper, FileStorageService fileStorageService,
-                           RedisUtil redisUtil) {
+                           RedisUtil redisUtil, ViewHistoryMapper viewHistoryMapper) {
         this.resourceMapper = resourceMapper;
         this.favoriteMapper = favoriteMapper;
         this.downloadRecordMapper = downloadRecordMapper;
         this.fileStorageService = fileStorageService;
         this.redisUtil = redisUtil;
+        this.viewHistoryMapper = viewHistoryMapper;
     }
 
     public PageResult<Resource> page(int page, int size, String keyword, Long categoryId, String sort, String order) {
@@ -63,6 +70,13 @@ public class ResourceService {
         }
         resourceMapper.incrementViewCount(id);
         Long userId = CurrentUser.id();
+        if (userId != null) {
+            ViewHistory history = new ViewHistory();
+            history.setUserId(userId);
+            history.setResourceId(id);
+            history.setViewDuration(0);
+            viewHistoryMapper.insert(history);
+        }
         resource.setFavorite(userId != null && favoriteMapper.findByUserAndResource(userId, id) != null);
         redisUtil.set("resource:" + id, resource, 3600);
         return resource;
@@ -75,6 +89,7 @@ public class ResourceService {
         resource.setTitle(dto.getTitle());
         resource.setDescription(dto.getDescription());
         resource.setCategoryId(dto.getCategoryId());
+        resource.setTags(normalizeTags(dto.getTags()));
         resource.setUserId(userId);
         resource.setFileName(storedFile.getOriginalName());
         resource.setFilePath(storedFile.getPath());
@@ -104,6 +119,7 @@ public class ResourceService {
         folder.setTitle(dto.getTitle());
         folder.setDescription(dto.getDescription());
         folder.setCategoryId(dto.getCategoryId());
+        folder.setTags(normalizeTags(dto.getTags()));
         folder.setUserId(userId);
         folder.setFileName(dto.getTitle());
         folder.setFilePath("");
@@ -120,6 +136,7 @@ public class ResourceService {
             child.setTitle(storedFile.getOriginalName());
             child.setDescription(dto.getDescription());
             child.setCategoryId(dto.getCategoryId());
+            child.setTags(folder.getTags());
             child.setUserId(userId);
             child.setFileName(storedFile.getOriginalName());
             child.setFilePath(storedFile.getPath());
@@ -153,9 +170,10 @@ public class ResourceService {
             FileStorageService.StoredFile storedFile = fileStorageService.store(files.get(i));
             Resource child = new Resource();
             child.setTitle(storedFile.getOriginalName());
-            child.setDescription(folder.getDescription());
-            child.setCategoryId(folder.getCategoryId());
-            child.setUserId(folder.getUserId());
+        child.setDescription(folder.getDescription());
+        child.setCategoryId(folder.getCategoryId());
+        child.setTags(folder.getTags());
+        child.setUserId(folder.getUserId());
             child.setFileName(storedFile.getOriginalName());
             child.setFilePath(storedFile.getPath());
             child.setFileSize(storedFile.getSize());
@@ -233,6 +251,7 @@ public class ResourceService {
         resource.setTitle(dto.getTitle());
         resource.setDescription(dto.getDescription());
         resource.setCategoryId(dto.getCategoryId());
+        resource.setTags(normalizeTags(dto.getTags()));
         resourceMapper.update(resource);
         redisUtil.delete("resource:" + id);
         return resourceMapper.findById(id);
@@ -385,8 +404,29 @@ public class ResourceService {
         if (name.endsWith(".mp4")) {
             return "video/mp4";
         }
+        if (name.endsWith(".webm")) {
+            return "video/webm";
+        }
+        if (name.endsWith(".mov")) {
+            return "video/quicktime";
+        }
         if (name.endsWith(".mp3")) {
             return "audio/mpeg";
+        }
+        if (name.endsWith(".wav")) {
+            return "audio/wav";
+        }
+        if (name.endsWith(".ogg")) {
+            return "audio/ogg";
+        }
+        if (name.endsWith(".flac")) {
+            return "audio/flac";
+        }
+        if (name.endsWith(".m4a")) {
+            return "audio/mp4";
+        }
+        if (name.endsWith(".aac")) {
+            return "audio/aac";
         }
         if (name.endsWith(".txt")) {
             return "text/plain;charset=UTF-8";
@@ -520,5 +560,34 @@ public class ResourceService {
             throw new BusinessException(403, "无权限操作该资源");
         }
         return resource;
+    }
+
+    private String normalizeTags(String tags) {
+        if (tags == null || tags.isBlank()) {
+            return null;
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String raw : tags.split("[,，;；\\s]+")) {
+            String tag = raw == null ? "" : raw.trim();
+            if (tag.isBlank()) {
+                continue;
+            }
+            tag = tag.replaceAll("[#<>\"'`]", "");
+            if (tag.isBlank()) {
+                continue;
+            }
+            if (tag.length() > MAX_TAG_LENGTH) {
+                tag = tag.substring(0, MAX_TAG_LENGTH);
+            }
+            normalized.add(tag);
+            if (normalized.size() >= MAX_TAG_COUNT) {
+                break;
+            }
+        }
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        String result = String.join(",", normalized);
+        return result.length() <= MAX_TAGS_TEXT_LENGTH ? result : result.substring(0, MAX_TAGS_TEXT_LENGTH);
     }
 }

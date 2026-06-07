@@ -48,6 +48,34 @@ public class FileStorageService {
         }
     }
 
+    public Path prepareGeneratedPath(String extension) {
+        String normalizedExtension = normalizeExtension(extension);
+        try {
+            Path dir = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Files.createDirectories(dir);
+            String storedName = UUID.randomUUID().toString().replace("-", "") + "." + normalizedExtension;
+            Path target = dir.resolve(storedName).normalize();
+            if (!target.startsWith(dir)) {
+                throw new BusinessException(400, "非法文件路径");
+            }
+            return target;
+        } catch (IOException ex) {
+            throw new BusinessException(500, "生成文件路径失败");
+        }
+    }
+
+    public StoredFile describeGeneratedFile(String originalName, Path path, String contentType) {
+        try {
+            Path normalized = path.toAbsolutePath().normalize();
+            if (!Files.isRegularFile(normalized)) {
+                throw new BusinessException(404, "生成文件不存在");
+            }
+            return new StoredFile(originalName, normalized.toString(), Files.size(normalized), contentType);
+        } catch (IOException ex) {
+            throw new BusinessException(500, "读取生成文件失败");
+        }
+    }
+
     public Path resolve(String filePath) {
         Path path = Paths.get(filePath).toAbsolutePath().normalize();
         if (!Files.exists(path)) {
@@ -62,6 +90,17 @@ public class FileStorageService {
             throw new BusinessException(400, "文件缺少扩展名");
         }
         return name.substring(idx + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeExtension(String extension) {
+        if (extension == null) {
+            throw new BusinessException(400, "文件缺少扩展名");
+        }
+        String normalized = extension.replace(".", "").trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank() || normalized.contains("/") || normalized.contains("\\") || BLOCKED_EXTENSIONS.contains(normalized)) {
+            throw new BusinessException(400, "不支持的文件类型");
+        }
+        return normalized;
     }
 
     private String contentType(MultipartFile file) {

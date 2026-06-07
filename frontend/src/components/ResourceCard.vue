@@ -12,10 +12,14 @@
       </div>
 
       <div class="resource-meta">
-        <span>{{ resource.categoryName || '未分类' }}</span>
+        <span>{{ resource.username || '-' }}</span>
         <span v-if="isFolder">文件 {{ resource.fileCount || 0 }}</span>
         <span v-else>浏览 {{ resource.viewCount || 0 }}</span>
         <span>下载 {{ resource.downloadCount || 0 }}</span>
+      </div>
+
+      <div v-if="resourceTags.length" class="resource-tags">
+        <span v-for="tag in resourceTags" :key="tag">#{{ tag }}</span>
       </div>
 
       <div v-if="isFolder" class="folder-card-note">
@@ -49,9 +53,32 @@ const isFolder = computed(() => props.resource.resourceType === 'FOLDER')
 const resourceLink = computed(() => `/resources/${props.resource.id}`)
 
 const fileLabel = computed(() => detectFileLabel(props.resource.fileName || props.resource.title, isFolder.value))
+const resourceTags = computed(() => String(props.resource.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 6))
 
 const ratingText = computed(() => {
   const rating = Number(props.resource.rating || 0)
   return rating.toFixed(2)
 })
 </script>
+
+<style scoped>
+.resource-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.resource-tags span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(238, 246, 246, 0.9);
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

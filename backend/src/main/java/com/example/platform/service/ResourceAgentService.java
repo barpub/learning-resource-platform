@@ -1,10 +1,7 @@
 package com.example.platform.service;
 
 import com.example.platform.common.BusinessException;
-import com.example.platform.dto.GlobalSearchItem;
-import com.example.platform.dto.GlobalSearchResponse;
 import com.example.platform.dto.ResourceAgentRemoteSummaryRequest;
-import com.example.platform.dto.ResourceAgentSearchResponse;
 import com.example.platform.dto.ResourceContentSummary;
 import com.example.platform.entity.Resource;
 import com.example.platform.mapper.ResourceMapper;
@@ -39,35 +36,16 @@ public class ResourceAgentService {
     private static final Pattern XML_TAG = Pattern.compile("<[^>]+>");
     private static final Pattern PPT_SLIDE = Pattern.compile("ppt/slides/slide(\\d+)\\.xml");
 
-    private final GlobalSearchService globalSearchService;
     private final ResourceMapper resourceMapper;
     private final FileStorageService fileStorageService;
     private final ResourceAgentLmService resourceAgentLmService;
 
-    public ResourceAgentService(GlobalSearchService globalSearchService,
-                                ResourceMapper resourceMapper,
+    public ResourceAgentService(ResourceMapper resourceMapper,
                                 FileStorageService fileStorageService,
                                 ResourceAgentLmService resourceAgentLmService) {
-        this.globalSearchService = globalSearchService;
         this.resourceMapper = resourceMapper;
         this.fileStorageService = fileStorageService;
         this.resourceAgentLmService = resourceAgentLmService;
-    }
-
-    public ResourceAgentSearchResponse search(String keyword, String source, Integer limit) {
-        GlobalSearchResponse base = globalSearchService.search(keyword, source, limit);
-        ResourceAgentSearchResponse response = new ResourceAgentSearchResponse();
-        response.setKeyword(base.getKeyword());
-        response.setRecords(base.getRecords());
-        response.setSummary(base.getSummary());
-        response.setAgentSteps(List.of(
-                "复用全局搜索索引检索本地资源和远程 FTP 资源",
-                "按标题、文件名、描述、分类、来源和质量分进行排序",
-                "为可总结资源标记可执行的内容分析入口"
-        ));
-        response.setSuggestedQueries(suggestedQueries(base.getRecords(), base.getKeyword()));
-        response.setAnswer(buildSearchAnswer(base));
-        return response;
     }
 
     public ResourceContentSummary summarizeLocal(Long id) {
@@ -153,7 +131,7 @@ public class ResourceAgentService {
             throw new BusinessException(404, "资源不存在");
         }
         if (!"FOLDER".equals(folder.getResourceType()) || folder.getParentId() != null) {
-            throw new BusinessException(400, "分析 Agent 只支持用户上传的本地虚拟文件夹");
+            throw new BusinessException(400, "Agent 理解只支持用户上传的本地虚拟文件夹");
         }
         return folder;
     }
@@ -173,8 +151,8 @@ public class ResourceAgentService {
 
         if (files.isEmpty()) {
             throw new BusinessException(404, targetPath.isBlank()
-                    ? "该上传文件夹下没有可分析的文件"
-                    : "当前虚拟文件夹下没有可分析的文件");
+                    ? "该上传文件夹下没有可理解的文件"
+                    : "当前虚拟文件夹下没有可理解的文件");
         }
 
         long totalSize = files.stream()
@@ -247,7 +225,7 @@ public class ResourceAgentService {
         result.setMediaKind("FOLDER");
         result.setContentSource(hasExtractedContent ? "folder-files+content" : "folder-files");
         result.setConfidence(hasExtractedContent ? 0.72 : 0.54);
-        result.setSummary("分析 Agent 已扫描当前虚拟文件夹“" + (targetPath.isBlank() ? "/" : targetPath)
+        result.setSummary("Agent 理解已扫描当前虚拟文件夹“" + (targetPath.isBlank() ? "/" : targetPath)
                 + "”下的 " + files.size() + " 个文件，其中 " + extractedFileCount
                 + " 个文件读取到正文内容，其余文件使用文件名、路径、格式和描述参与分析。");
         String sourceText = compact(analysisText.toString());
@@ -665,45 +643,6 @@ public class ResourceAgentService {
             return List.of("继续生成详细学习笔记。", "把知识点转为问答卡片。");
         }
         return List.of("打开预览核对内容。", "补充资源描述以提升推荐和总结质量。");
-    }
-
-    private String buildSearchAnswer(GlobalSearchResponse base) {
-        int count = base.getRecords() == null ? 0 : base.getRecords().size();
-        if (count == 0) {
-            return "没有找到匹配资源。可以换一个关键词，或扩大到全部来源继续搜索。";
-        }
-        long local = base.getRecords().stream().filter(item -> "LOCAL".equals(item.getSource())).count();
-        long remote = count - local;
-        String top = base.getRecords().get(0).getTitle();
-        return "已找到 " + count + " 个候选资源，其中本地 " + local + " 个、远程 " + remote
-                + " 个。最相关资源是“" + top + "”，可以直接进入内容总结。";
-    }
-
-    private List<String> suggestedQueries(List<GlobalSearchItem> records, String keyword) {
-        Set<String> queries = new LinkedHashSet<>();
-        String safe = keyword == null ? "" : keyword.trim();
-        if (!safe.isBlank()) {
-            queries.add(safe + " PPT");
-            queries.add(safe + " 视频");
-            queries.add(safe + " 知识点");
-        }
-        if (records != null) {
-            for (GlobalSearchItem item : records) {
-                if (!blank(item.getCategoryName())) {
-                    queries.add(item.getCategoryName());
-                }
-                if (!blank(item.getFileName())) {
-                    queries.add(stem(item.getFileName()));
-                }
-                if (queries.size() >= 6) {
-                    break;
-                }
-            }
-        }
-        if (queries.isEmpty()) {
-            queries.addAll(List.of("课程 PPT", "教学视频", "复习资料"));
-        }
-        return new ArrayList<>(queries).stream().limit(6).toList();
     }
 
     private String metadataText(Resource resource, String path) {

@@ -111,11 +111,11 @@
     <section class="enhance-panel">
       <div class="enhance-card">
         <div>
-          <strong>人声分离强化</strong>
-          <span>弱化背景声和杂音，突出人声主体，压峰、抬细节、减少忽大忽小</span>
+          <strong>人声增强</strong>
+          <span>弱化背景声和杂音，突出人声主体，压峰、波峰平缓、抬细节、减少忽大忽小</span>
         </div>
-        <button type="button" class="switch-button" :class="{ active: dynamicRepair }" @click="dynamicRepair = !dynamicRepair">
-          {{ dynamicRepair ? 'ON' : 'OFF' }}
+        <button type="button" class="switch-button" :class="{ active: vocalEnhance }" @click="vocalEnhance = !vocalEnhance">
+          {{ vocalEnhance ? 'ON' : 'OFF' }}
         </button>
       </div>
       <div class="enhance-card">
@@ -129,8 +129,8 @@
       </div>
       <div class="enhance-card">
         <div>
-          <strong>母带保护</strong>
-          <span>输出限幅，避免增强后爆音</span>
+          <strong>波峰平缓</strong>
+          <span>输出限幅和压峰，平滑忽大忽小，避免增强后爆音</span>
         </div>
         <button type="button" class="switch-button" :class="{ active: limiterEnabled }" @click="limiterEnabled = !limiterEnabled">
           {{ limiterEnabled ? 'ON' : 'OFF' }}
@@ -183,7 +183,7 @@ let timeData = null
 let rafId = 0
 
 const {
-  dynamicRepair,
+  vocalEnhance,
   hiResEnhance,
   limiterEnabled,
   peakLevel,
@@ -218,9 +218,9 @@ const seekStyle = computed(() => ({
 }))
 const processingLabel = computed(() => {
   const active = []
-  if (dynamicRepair.value) active.push('Vocal+')
+  if (vocalEnhance.value) active.push('Vocal+')
   if (hiResEnhance.value) active.push('Hi-Res')
-  if (limiterEnabled.value) active.push('Limiter')
+  if (limiterEnabled.value) active.push('Peak Smooth')
   return active.length ? active.join(' / ') : '原始输出'
 })
 

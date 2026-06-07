@@ -5,7 +5,7 @@
         <div class="hero-copy">
           <span class="eyebrow">Resource Distribution</span>
           <h1>学习资源分发首页</h1>
-          <p>把头部作品、热门排行、分类入口和全局搜索放在首屏，用户进来就能判断资源质量和进入目标分区。</p>
+          <p>把头部作品、热门排行、标签入口和全局搜索放在首屏，用户进来就能判断资源质量并快速找到目标资料。</p>
         </div>
 
         <div class="hero-search-panel">
@@ -58,7 +58,7 @@
                 <strong>{{ categoryInitial(item.title || '资源') }}</strong>
               </div>
               <div class="featured-copy">
-                <span>{{ item.categoryName || '精选资源' }}</span>
+                <span>{{ firstTag(item) || '精选资源' }}</span>
                 <h2>{{ item.title || '等待上传头部作品' }}</h2>
                 <p>{{ item.description || '高评分、高热度或最新上传的资源会在这里轮流展示。' }}</p>
                 <div class="featured-meta">
@@ -88,7 +88,7 @@
         >
           <strong>{{ index + 1 }}</strong>
           <span>
-            <em>{{ item.categoryName || fileLabel(item.fileName) }}</em>
+            <em>{{ firstTag(item) || fileLabel(item.fileName) }}</em>
             {{ item.title }}
           </span>
           <small>{{ item.downloadCount || 0 }}</small>
@@ -100,25 +100,25 @@
     <section class="home-categories">
       <div class="section-heading">
         <div>
-          <span class="eyebrow">Categories</span>
-          <h2>分类导航</h2>
+          <span class="eyebrow">Tags</span>
+          <h2>标签发现</h2>
         </div>
         <router-link to="/resources" class="text-action">进入资源库</router-link>
       </div>
 
       <div class="category-ribbon category-showcase">
         <button
-          v-for="(item, index) in categories"
-          :key="item.id"
+          v-for="(item, index) in tagShortcuts"
+          :key="item.name"
           class="category-tab"
           :style="{ '--category-accent': categoryAccent(index) }"
-          @click="openCategory(item.id)"
+          @click="openTag(item.name)"
         >
-          <span class="category-mark">{{ categoryInitial(item.name) }}</span>
+          <span class="category-mark">#</span>
           <span class="category-copy">
             <strong>{{ item.name }}</strong>
           </span>
-          <span class="category-count">{{ item.resourceCount || 0 }}</span>
+          <span class="category-count">{{ item.count }}</span>
         </button>
         <button
           class="category-tab"
@@ -164,7 +164,7 @@
               <span class="latest-type">{{ fileLabel(item.fileName) }}</span>
               <span>
                 <strong>{{ item.title }}</strong>
-                <em>{{ item.categoryName || '未分类' }}</em>
+                <em>{{ firstTag(item) || fileLabel(item.fileName) }}</em>
               </span>
               <small>浏览 {{ item.viewCount || 0 }}</small>
             </router-link>
@@ -187,7 +187,7 @@
           >
             <strong>{{ index + 1 }}</strong>
             <span>
-              <em>{{ item.categoryName || '资源' }}</em>
+              <em>{{ firstTag(item) || '资源' }}</em>
               {{ item.title }}
             </span>
             <small>{{ item.downloadCount || 0 }} 下载</small>
@@ -213,13 +213,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStore } from 'vuex'
-import { categoryApi, resourceApi } from '../api'
+import { resourceApi, betaRecommendationApi } from '../api'
 import ResourceCard from '../components/ResourceCard.vue'
 
 const router = useRouter()
 const store = useStore()
 const keyword = ref('')
-const categories = ref([])
 const recommended = ref([])
 const latest = ref([])
 const hot = ref([])
@@ -247,6 +246,17 @@ const featuredWorks = computed(() => {
     downloadCount: 0
   }]
 })
+const tagShortcuts = computed(() => {
+  const counts = new Map()
+  ;[...recommended.value, ...latest.value, ...hot.value].forEach((item) => {
+    splitTags(item.tags).forEach((tag) => counts.set(tag, (counts.get(tag) || 0) + 1))
+  })
+  const tags = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }))
+  return tags.length ? tags : ['课程', '课件', '视频', '论文', '实验'].map((name) => ({ name, count: '搜' }))
+})
 
 function goSearch() {
   router.push({ path: '/resources', query: { keyword: keyword.value } })
@@ -260,8 +270,8 @@ function openLibrary(sort) {
   router.push({ path: '/resources', query: { sort } })
 }
 
-function openCategory(categoryId) {
-  router.push({ path: '/resources', query: { categoryId } })
+function openTag(tag) {
+  router.push({ path: '/resources', query: { keyword: tag } })
 }
 
 function openRemote() {
@@ -274,6 +284,14 @@ function categoryAccent(index) {
 
 function categoryInitial(name = '') {
   return name.trim().slice(0, 1) || '资'
+}
+
+function splitTags(tags = '') {
+  return String(tags || '').split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 6)
+}
+
+function firstTag(item = {}) {
+  return splitTags(item.tags)[0]
 }
 
 function fileLabel(fileName = '') {
@@ -294,21 +312,35 @@ function ratingText(item = {}) {
 
 onMounted(async () => {
   try {
-    categories.value = await categoryApi.list()
     const [recommendPage, latestPage, hotPage] = await Promise.all([
-      resourceApi.page({ page: 1, size: 6, sort: 'rating', order: 'desc' }),
+      loadRecommendations(),
       resourceApi.page({ page: 1, size: 6, sort: 'createTime', order: 'desc' }),
       resourceApi.page({ page: 1, size: 5, sort: 'downloadCount', order: 'desc' })
     ])
-    recommended.value = recommendPage.records || []
+    recommended.value = recommendPage || []
     latest.value = latestPage.records || []
     hot.value = hotPage.records || []
-    totalResources.value = recommendPage.total || 0
+    totalResources.value = latestPage.total || 0
   } catch (error) {
-    categories.value = []
     recommended.value = []
     latest.value = []
     hot.value = []
   }
 })
+
+async function loadRecommendations() {
+  try {
+    const isLoggedIn = store.state.token
+    if (isLoggedIn) {
+      const result = await betaRecommendationApi.recommend({})
+      return result.records || []
+    } else {
+      const page = await resourceApi.page({ page: 1, size: 6, sort: 'rating', order: 'desc' })
+      return page.records || []
+    }
+  } catch {
+    const page = await resourceApi.page({ page: 1, size: 6, sort: 'rating', order: 'desc' })
+    return page.records || []
+  }
+}
 </script>

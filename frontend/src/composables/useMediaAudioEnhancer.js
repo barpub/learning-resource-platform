@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 export function useMediaAudioEnhancer() {
-  const dynamicRepair = ref(false)
+  const vocalEnhance = ref(false)
   const hiResEnhance = ref(false)
   const limiterEnabled = ref(false)
   const peakLevel = ref(0)
@@ -26,9 +26,9 @@ export function useMediaAudioEnhancer() {
 
   const processingLabel = computed(() => {
     const active = []
-    if (dynamicRepair.value) active.push('Vocal+')
+    if (vocalEnhance.value) active.push('Vocal+')
     if (hiResEnhance.value) active.push('Hi-Res')
-    if (limiterEnabled.value) active.push('Limiter')
+    if (limiterEnabled.value) active.push('Peak Smooth')
     return active.length ? active.join(' / ') : 'Original'
   })
 
@@ -100,7 +100,7 @@ export function useMediaAudioEnhancer() {
   function applyProcessing() {
     if (!audioContext || !highPassFilter || !lowShelf || !mudFilter || !vocalBodyFilter || !presenceFilter || !highShelf || !compressor || !limiter || !gainNode) return
     const now = audioContext.currentTime
-    const vocalBoost = dynamicRepair.value
+    const vocalBoost = vocalEnhance.value
     const clarityBoost = hiResEnhance.value
 
     highPassFilter.frequency.setTargetAtTime(vocalBoost ? 95 : 45, now, 0.02)
@@ -182,11 +182,11 @@ export function useMediaAudioEnhancer() {
     timeData = null
   }
 
-  watch([dynamicRepair, hiResEnhance, limiterEnabled], applyProcessing)
+  watch([vocalEnhance, hiResEnhance, limiterEnabled], applyProcessing)
   onBeforeUnmount(dispose)
 
   return {
-    dynamicRepair,
+    vocalEnhance,
     hiResEnhance,
     limiterEnabled,
     peakLevel,

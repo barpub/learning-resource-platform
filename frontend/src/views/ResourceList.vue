@@ -8,7 +8,7 @@
       </div>
 
       <div class="toolbar-controls" v-if="mode === 'local'">
-        <el-input v-model="query.keyword" placeholder="搜索资源标题、描述或作者" clearable @keyup.enter="search" />
+        <el-input v-model="query.keyword" placeholder="搜索标题、描述、作者或标签" clearable @keyup.enter="search" />
         <el-select v-model="query.sort" style="width: 150px" @change="search">
           <el-option label="最新上传" value="createTime" />
           <el-option label="下载最多" value="downloadCount" />
@@ -46,19 +46,9 @@
     <section class="content-layout list-layout">
       <aside class="category-panel">
         <div class="panel-title">来源</div>
-        <button class="category-pill" :class="{ active: mode === 'local' && !query.categoryId }" @click="useLocal(null)">
+        <button class="category-pill" :class="{ active: mode === 'local' }" @click="useLocal">
           <span>本地全部资源</span>
           <em>{{ localTotal }}</em>
-        </button>
-        <button
-          v-for="item in categories"
-          :key="item.id"
-          class="category-pill"
-          :class="{ active: mode === 'local' && query.categoryId === item.id }"
-          @click="useLocal(item.id)"
-        >
-          <span>{{ item.name }}</span>
-          <em>{{ item.resourceCount || 0 }}</em>
         </button>
 
         <div class="panel-title" style="margin-top: 18px">远程</div>
@@ -171,7 +161,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { categoryApi, ftpApi, resourceApi } from '../api'
+import { ftpApi, resourceApi } from '../api'
 import ResourceCard from '../components/ResourceCard.vue'
 import FileCard from '../components/FileCard.vue'
 import FilePreviewPanel from '../components/FilePreviewPanel.vue'
@@ -179,14 +169,12 @@ import { detectPreviewKind, formatSize } from '../utils/fileIcon'
 
 const route = useRoute()
 const mode = ref('local')
-const categories = ref([])
 const records = ref([])
 const localTotal = ref(0)
 const query = reactive({
   page: 1,
   size: 9,
   keyword: route.query.keyword || '',
-  categoryId: route.query.categoryId ? Number(route.query.categoryId) : null,
   sort: route.query.sort || 'createTime',
   order: 'desc'
 })
@@ -207,9 +195,8 @@ function search() {
   loadLocal()
 }
 
-function useLocal(categoryId) {
+function useLocal() {
   mode.value = 'local'
-  query.categoryId = categoryId
   query.page = 1
   loadLocal()
 }
@@ -483,12 +470,6 @@ watch(() => route.query, async (next) => {
 }, { immediate: false })
 
 onMounted(async () => {
-  try {
-    categories.value = await categoryApi.list()
-  } catch (error) {
-    categories.value = []
-  }
-
   if (route.query.source === 'ftp') {
     const connectionId = route.query.connectionId ? Number(route.query.connectionId) : null
     const remotePath = route.query.path ? String(route.query.path) : ''

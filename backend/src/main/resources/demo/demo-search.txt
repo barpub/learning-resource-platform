@@ -1,0 +1,9 @@
+Learning Resource Platform Thesis Demo
+
+This demo document is used by the H2 quick start mode so the global search,
+resource preview, and Agent understanding pages have a local resource to read.
+
+The platform provides resource upload, download, global search, online preview,
+comments, favorites, folder resources, FTP browsing, and content understanding.
+The backend uses Spring Boot with Spring MVC and MyBatis, while the frontend
+uses Vue and Element Plus.

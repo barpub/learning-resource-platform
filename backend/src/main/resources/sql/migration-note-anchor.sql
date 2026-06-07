@@ -1,0 +1,4 @@
+ALTER TABLE note ADD COLUMN anchor_type VARCHAR(20) DEFAULT NULL COMMENT '笔记片段类型 VIDEO/TEXT/DOCUMENT/RESOURCE' AFTER resource_id;
+ALTER TABLE note ADD COLUMN anchor_text TEXT DEFAULT NULL COMMENT '笔记记录的文本片段' AFTER anchor_type;
+ALTER TABLE note ADD COLUMN anchor_image MEDIUMTEXT DEFAULT NULL COMMENT '笔记记录的视频截图或图片片段' AFTER anchor_text;
+ALTER TABLE note ADD COLUMN anchor_seconds DECIMAL(10,3) DEFAULT NULL COMMENT '视频时间点（秒）' AFTER anchor_image;

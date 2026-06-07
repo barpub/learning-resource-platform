@@ -97,6 +97,11 @@ service.interceptors.response.use(
   (error) => {
     const status = error.response?.status
     const data = error.response?.data
+    if (!error.response) {
+      const message = '后端服务连接失败，请确认 8080 端口的 Spring Boot 已启动'
+      ElMessage.error(message)
+      return Promise.reject(new Error(message))
+    }
     if (status === 401 || status === 403 || data?.code === 401 || data?.code === 403) {
       redirectToLogin(data?.message)
       return Promise.reject(error)

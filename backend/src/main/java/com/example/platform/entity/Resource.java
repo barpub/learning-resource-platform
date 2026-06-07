@@ -17,6 +17,7 @@ public class Resource {
     private String relativePath;
     private Integer fileCount;
     private Long categoryId;
+    private String tags;
     private Long userId;
     private Integer downloadCount;
     private Integer viewCount;
@@ -133,6 +134,14 @@ public class Resource {
 
     public void setCategoryId(Long categoryId) {
         this.categoryId = categoryId;
+    }
+
+    public String getTags() {
+        return tags;
+    }
+
+    public void setTags(String tags) {
+        this.tags = tags;
     }
 
     public Long getUserId() {

@@ -3,16 +3,6 @@
     <FlowBackground />
 
     <div ref="headerStackRef" class="header-stack">
-      <div class="section-strip">
-        <router-link to="/">头部作品</router-link>
-        <router-link to="/resources?sort=rating">高评分</router-link>
-        <router-link to="/resources?sort=downloadCount">下载榜</router-link>
-        <router-link to="/resources?source=ftp">远程库</router-link>
-        <router-link to="/forum">资源论坛</router-link>
-        <router-link to="/agent/analyze">分析Agent</router-link>
-        <router-link to="/beta/recommendations">Beta 推荐</router-link>
-      </div>
-
       <el-header class="app-header">
         <router-link to="/" class="brand">
           <span class="brand-mark">LR</span>
@@ -27,12 +17,11 @@
           <router-link to="/resources">资源库</router-link>
           <router-link to="/forum">资源论坛</router-link>
           <router-link to="/search">资源搜索</router-link>
-          <router-link to="/agent/analyze">分析Agent</router-link>
-          <router-link to="/beta/recommendations">Beta推荐</router-link>
-          <router-link to="/beta/master-repair">母版修复</router-link>
+          <router-link to="/agent/understand">Agent 理解</router-link>
           <router-link v-if="isLoggedIn" to="/mine">我的</router-link>
           <router-link v-if="isLoggedIn" to="/upload">上传</router-link>
           <router-link v-if="isLoggedIn" to="/favorites">收藏</router-link>
+          <router-link v-if="isLoggedIn" to="/notes">笔记</router-link>
           <router-link v-if="isAdmin" to="/admin">管理</router-link>
         </nav>
 

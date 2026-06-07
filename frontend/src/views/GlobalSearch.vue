@@ -9,7 +9,7 @@
       <div class="search-box">
         <el-input
           v-model="query.keyword"
-          placeholder="输入资源名、文件名、分类、作者或远程路径"
+          placeholder="输入资源名、文件名、标签、作者或远程路径"
           clearable
           @keyup.enter="runSearch"
         />
@@ -56,10 +56,12 @@
           <h3>{{ item.title }}</h3>
           <p>{{ item.description || '暂无描述' }}</p>
           <div class="result-meta">
-            <span>{{ item.categoryName || '-' }}</span>
             <span>{{ item.ownerName || item.remoteConnectionName || '-' }}</span>
             <span>{{ item.resourceType === 'FOLDER' ? '目录' : formatSize(item.fileSize) }}</span>
             <span>相关度 {{ item.score }}</span>
+          </div>
+          <div v-if="splitTags(item.tags).length" class="tag-row">
+            <span v-for="tag in splitTags(item.tags)" :key="tag">#{{ tag }}</span>
           </div>
           <div class="highlight-row">
             <span v-for="hit in item.highlights" :key="hit">{{ hit }}</span>
@@ -69,7 +71,7 @@
         <div class="result-actions">
           <el-button v-if="item.previewUrl" @click="openPreview(item)">预览</el-button>
           <el-button v-if="item.downloadUrl" @click="openDownload(item)">下载</el-button>
-          <el-button v-if="item.source === 'LOCAL' && item.resourceType === 'FOLDER'" @click="analyzeFolder(item)">分析</el-button>
+          <el-button v-if="item.source === 'LOCAL'" @click="understandResource(item)">理解</el-button>
           <el-button type="primary" plain @click="openItem(item)">打开</el-button>
         </div>
       </article>
@@ -85,12 +87,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import { ElMessage } from 'element-plus'
 import { globalSearchApi } from '../api'
 import { fileLabel, formatSize } from '../utils/fileIcon'
 
 const route = useRoute()
 const router = useRouter()
+const store = useStore()
 const loading = ref(false)
 const records = ref([])
 const summary = ref({})
@@ -139,6 +143,10 @@ function badge(item) {
   return fileLabel(item.fileName || item.title, item.resourceType === 'FOLDER')
 }
 
+function splitTags(tags = '') {
+  return String(tags || '').split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 6)
+}
+
 function openItem(item) {
   if (item.source === 'LOCAL' && item.localResourceId) {
     router.push(`/resources/${item.localResourceId}`)
@@ -166,15 +174,79 @@ function openPreview(item) {
   window.open(apiUrl(item.previewUrl), '_blank')
 }
 
-function openDownload(item) {
-  window.open(apiUrl(item.downloadUrl), '_blank')
+async function openDownload(item) {
+  if (item.source !== 'LOCAL') {
+    window.open(apiUrl(item.downloadUrl), '_blank')
+    return
+  }
+  if (!store.state.token) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  try {
+    const response = await fetch(apiUrl(item.downloadUrl), {
+      headers: {
+        Authorization: `Bearer ${store.state.token}`
+      }
+    })
+    const contentType = response.headers.get('content-type') || ''
+    if (!response.ok) {
+      throw new Error(`下载失败：${response.status}`)
+    }
+    if (contentType.includes('application/json')) {
+      const data = await response.json()
+      throw new Error(data.message || '下载失败')
+    }
+    const blob = await response.blob()
+    saveBlob(blob, parseDownloadFilename(response.headers.get('content-disposition')) || fallbackDownloadName(item))
+  } catch (error) {
+    ElMessage.error(error.message || '下载失败')
+  }
 }
 
-function analyzeFolder(item) {
+function parseDownloadFilename(disposition = '') {
+  const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Name) {
+    try {
+      return decodeURIComponent(utf8Name[1])
+    } catch {
+      return utf8Name[1]
+    }
+  }
+  return disposition.match(/filename="?([^"]+)"?/i)?.[1] || ''
+}
+
+function fallbackDownloadName(item) {
+  const name = item.fileName || item.title || 'download'
+  if (item.resourceType === 'FOLDER' && !name.toLowerCase().endsWith('.zip')) {
+    return `${safeDownloadName(name)}.zip`
+  }
+  return safeDownloadName(name)
+}
+
+function safeDownloadName(name) {
+  return String(name || 'download').replace(/[\\/:*?"<>|]/g, '_')
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename || 'download'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+function understandResource(item) {
   if (!item.localResourceId) return
   router.push({
-    path: '/agent/analyze',
-    query: { resourceId: item.localResourceId }
+    path: '/agent/understand',
+    query: {
+      resourceId: item.localResourceId,
+      scope: item.resourceType === 'FOLDER' ? 'folder' : undefined
+    }
   })
 }
 
@@ -323,6 +395,7 @@ onMounted(loadResults)
 }
 
 .result-meta,
+.tag-row,
 .highlight-row {
   display: flex;
   flex-wrap: wrap;
@@ -330,6 +403,7 @@ onMounted(loadResults)
 }
 
 .result-meta span,
+.tag-row span,
 .highlight-row span {
   max-width: 180px;
   overflow: hidden;
@@ -345,6 +419,12 @@ onMounted(loadResults)
 .highlight-row span {
   background: rgba(238, 246, 246, 0.96);
   color: var(--primary-strong);
+}
+
+.tag-row span {
+  background: rgba(238, 246, 246, 0.96);
+  color: var(--primary-strong);
+  font-weight: 700;
 }
 
 .path-row {
